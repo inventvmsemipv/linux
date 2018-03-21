@@ -397,7 +397,8 @@ static int sun4i_i2s_set_clk_rate(struct snd_soc_dai *dai,
 
 	regmap_write(i2s->regmap, SUN4I_I2S_CLK_DIV_REG,
 		     SUN4I_I2S_CLK_DIV_BCLK(bclk_div) |
-		     SUN4I_I2S_CLK_DIV_MCLK(mclk_div));
+		     1);
+	//SUN4I_I2S_CLK_DIV_MCLK(mclk_div));
 
 	regmap_field_write(i2s->field_clkdiv_mclk_en, 1);
 
