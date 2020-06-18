@@ -481,37 +481,66 @@ static int sun4i_i2s_set_chan_cfg(const struct sun4i_i2s *i2s,
 	return 0;
 }
 
+static const u32 rx_ch_maps[] = {
+	/* 0 channels, ignored */
+	0x00000000,
+	/* 1 channel */
+	0x00000000,
+	/* 2 channels */
+	0x00000010,
+	/* 3 channels */
+	0x00000210,
+	/* 4 channels */
+	0x00003210,
+	/* 5 channels */
+	0x00043210,
+	/* 6 channels */
+	0x00543210,
+	/* 7 channels */
+	0x06543210,
+	/* 8 channels */
+	0x76543210,
+};
+	
+static const u32 tx_ch_maps[] = {
+	/* 0 channels, ignored */
+	0x00000000,
+	/* 1 channel */
+	0x00000000,
+	/* 2 channels */
+	0x00000001,
+	/* 3 channels */
+	0x00000012,
+	/* 4 channels */
+	0x00000123,
+	/* 5 channels */
+	0x00001234,
+	/* 6 channels */
+	0x00012345,
+	/* 7 channels */
+	0x00123456,
+	/* 8 channels */
+	0x01234567,
+};
+
 static int map_channels(const struct sun4i_i2s *i2s, int stream)
 {
-	unsigned int i, mask, rx_chan_index, tx_chan_index,
-		rx_mask = i2s->rx_mask, tx_mask = i2s->tx_mask,
-		ch_map_mask, ch_map_shift;
+	unsigned int nchannels;
+	unsigned int mask = stream == SNDRV_PCM_STREAM_PLAYBACK ?
+		i2s->tx_mask : i2s->rx_mask;
 	int map_tx = stream == SNDRV_PCM_STREAM_PLAYBACK;
 
-	for (rx_chan_index = tx_chan_index = i = 0;
-	     i < 8 && (rx_mask || tx_mask); i++) {
-		mask = (1 << i);
-
-		if (!map_tx && (mask && rx_mask)) {
-			/* Slot i -> rx chan chan_index */
-			ch_map_shift = (rx_chan_index++ * 4);
-			ch_map_mask = 7 << ch_map_shift;
-
-			regmap_update_bits(i2s->regmap,
-					  SUN8I_I2S_RX_CHAN_MAP_REG,
-					  ch_map_mask, i << ch_map_shift);
-			rx_mask &= ~mask;
-		}
-		if (map_tx && (mask && tx_mask)) {
-			/* Slot i -> tx chan chan_index */
-			ch_map_shift = (rx_chan_index++ * 4);
-			ch_map_mask = 7 << ch_map_shift;
-
-			regmap_update_bits(i2s->regmap,
-					  SUN8I_I2S_TX_CHAN_MAP_REG,
-					   ch_map_mask, i << ch_map_shift);
-			tx_mask &= ~mask;
-		}
+	nchannels = ffs(~mask) - 1;
+	if (!map_tx) {
+		/* Rx mapping */
+		regmap_write(i2s->regmap,
+			     SUN8I_I2S_RX_CHAN_MAP_REG,
+			     rx_ch_maps[nchannels]);
+	} else {
+		/* Tx Mapping */
+		regmap_write(i2s->regmap,
+			     SUN8I_I2S_TX_CHAN_MAP_REG,
+			     tx_ch_maps[nchannels]);
 	}
 	return 0;
 }
