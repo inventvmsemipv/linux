@@ -37,3 +37,8 @@ config SND_TEST_COMPONENT
 	depends on OF
 	help
 	  This option enables test component sound driver support.
+
+config SND_AUDIO_CONFIGFS_CARD
+	tristate "ASoC configfs sound card support"
+	help
+	  This option enables support for a configfs sound card
