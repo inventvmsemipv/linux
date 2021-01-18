@@ -1,4 +1,5 @@
 // configfs based asoc card
+#include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/configfs.h>
 
@@ -7,10 +8,50 @@ struct asoc_configfs_soundcard {
 	struct config_group group;
 };
 
+#define to_asoc_configfs_soundcard(g)					\
+	container_of(g, struct asoc_configfs_soundcard, group)
+
+static void single_soundcard_type_item_release(struct config_item *item)
+{
+	struct config_group *gr = to_config_group(item);
+	struct asoc_configfs_soundcard *sc = to_asoc_configfs_soundcard(gr);
+
+	pr_err("%s invoked, item = %p, group = %p, sc = %p\n", __func__, item,
+	       gr, sc);
+	kfree(sc);
+}
+
+static struct configfs_item_operations single_soundcard_type_item_ops = {
+	.release = single_soundcard_type_item_release,
+};
+
+static const struct config_item_type single_soundcard_type = {
+	.ct_item_ops = &single_soundcard_type_item_ops,
+	.ct_owner = THIS_MODULE,
+};
+
+static struct config_group *
+asoc_soundcard_make_group(struct config_group *group, const char *name)
+{
+	struct asoc_configfs_soundcard *out = kzalloc(sizeof(*out), GFP_KERNEL);
+
+	pr_err("%s: allocated soundcard %p\n", __func__, out);
+	if (!out)
+		return ERR_PTR(-ENOMEM);
+	out->name = group->cg_item.ci_namebuf;
+	config_group_init_type_name(&out->group, name, &single_soundcard_type);
+	return &out->group;
+}
+
+static struct configfs_group_operations soundcard_type_group_ops = {
+	.make_group = asoc_soundcard_make_group,
+};
+
 static struct config_group *soundcard_group;
 
 static const struct config_item_type soundcard_type = {
 	.ct_owner = THIS_MODULE,
+	.ct_group_ops = &soundcard_type_group_ops,
 };
 
 static const struct config_item_type asoc_group_type = {
