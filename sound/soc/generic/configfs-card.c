@@ -8,8 +8,11 @@ struct asoc_configfs_soundcard {
 	struct config_group group;
 };
 
-#define to_asoc_configfs_soundcard(g)					\
-	container_of(g, struct asoc_configfs_soundcard, group)
+static inline struct asoc_configfs_soundcard *
+to_asoc_configfs_soundcard(struct config_group *g)
+{
+	return container_of(g, struct asoc_configfs_soundcard, group);
+}
 
 static void single_soundcard_type_item_release(struct config_item *item)
 {
