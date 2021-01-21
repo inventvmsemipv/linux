@@ -2,6 +2,7 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/configfs.h>
+#include <linux/i2c.h>
 #include <sound/soc.h>
 #include <sound/soc-dai.h>
 
@@ -44,6 +45,152 @@ to_asoc_configfs_dai_link(struct config_group *g)
 	return container_of(g, struct asoc_configfs_dai_link, group);
 }
 
+struct btype {
+	struct bus_type *bt;
+	const char *name;
+} bus_types[] = {
+	{
+		.bt = &platform_bus_type,
+		.name = "platform",
+	},
+	{
+		.bt = &i2c_bus_type,
+		.name = "i2c",
+	},
+};
+
+static ssize_t asoc_card_dai_link_comp_bustype_store(struct config_item *item,
+						     const char *page,
+						     size_t len)
+{
+	struct asoc_configfs_dai_link *dl =
+		to_asoc_configfs_dai_link(to_config_group(item));
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(bus_types); i++) {
+		if (!strncmp(bus_types[i].name, page,
+			     strnlen(bus_types[i].name, len))) {
+			dl->component_bt = bus_types[i].bt;
+			return len;
+		}
+	}
+	return -EINVAL;
+}
+
+static ssize_t asoc_card_dai_link_comp_devname_store(struct config_item *item,
+						     const char *page,
+						     size_t len)
+{
+	struct asoc_configfs_dai_link *dl =
+		to_asoc_configfs_dai_link(to_config_group(item));
+
+	if (dl->component_dev_name)
+		/* Already assigned previously ? */
+		kfree(dl->component_dev_name);
+	dl->component_dev_name = kstrndup(page, PAGE_SIZE, GFP_KERNEL);
+	dl->component_dev_name[strlen(dl->component_dev_name) - 1] = 0;
+	pr_debug("dai_link->component_dev_name = %s\n", dl->component_dev_name);
+	if (!dl->component_dev_name)
+		return -ENOMEM;
+	return len;
+}
+
+static ssize_t asoc_card_dai_link_comp_dainame_store(struct config_item *item,
+						     const char *page,
+						     size_t len)
+{
+	struct asoc_configfs_dai_link *dl =
+		to_asoc_configfs_dai_link(to_config_group(item));
+
+	if (dl->component_dai_name)
+		/* Already assigned previously ? */
+		kfree(dl->component_dai_name);
+	dl->component_dai_name = kstrndup(page, PAGE_SIZE, GFP_KERNEL);
+	dl->component_dai_name[strlen(dl->component_dai_name) - 1] = 0;
+	pr_debug("dai_link->component_dai_name = %s\n", dl->component_dai_name);
+	if (!dl->component_dai_name)
+		return -ENOMEM;
+	return len;
+}
+
+
+static ssize_t asoc_card_dai_link_slot_num_store(struct config_item *item,
+						 const char *page, size_t len)
+{
+	struct asoc_configfs_dai_link *dl =
+		to_asoc_configfs_dai_link(to_config_group(item));
+	int ret;
+
+	ret = kstrtoul(page, 10, &dl->slot_num);
+	return ret < 0 ? ret : len;
+}
+
+static ssize_t asoc_card_dai_link_slot_width_store(struct config_item *item,
+						   const char *page, size_t len)
+{
+	struct asoc_configfs_dai_link *dl =
+		to_asoc_configfs_dai_link(to_config_group(item));
+	int ret;
+
+	ret = kstrtoul(page, 10, &dl->slot_width);
+	return ret < 0 ? ret : len;
+}
+
+static ssize_t asoc_card_dai_link_rx_mask_store(struct config_item *item,
+						const char *page, size_t len)
+{
+	struct asoc_configfs_dai_link *dl =
+		to_asoc_configfs_dai_link(to_config_group(item));
+	int ret;
+
+	ret = kstrtoul(page, 16, &dl->rx_mask);
+	return ret < 0 ? ret : len;
+}
+
+static ssize_t asoc_card_dai_link_tx_mask_store(struct config_item *item,
+						const char *page, size_t len)
+{
+	struct asoc_configfs_dai_link *dl =
+		to_asoc_configfs_dai_link(to_config_group(item));
+	int ret;
+
+	ret = kstrtoul(page, 16, &dl->tx_mask);
+	return ret < 0 ? ret : len;
+}
+
+static ssize_t asoc_card_dai_link_mclk_fs_store(struct config_item *item,
+						const char *page, size_t len)
+{
+	struct asoc_configfs_dai_link *dl =
+		to_asoc_configfs_dai_link(to_config_group(item));
+	int ret;
+	
+	ret = kstrtoul(page, 10, &dl->mclk_fs);
+	return ret < 0 ? ret : len;
+}
+
+
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, comp_bustype);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, comp_devname);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, comp_dainame);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, slot_num);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, slot_width);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, rx_mask);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, tx_mask);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, mclk_fs);
+
+static struct configfs_attribute *asoc_card_dai_link_attrs[] = {
+	&asoc_card_dai_link_attr_comp_bustype,
+	&asoc_card_dai_link_attr_comp_devname,
+	&asoc_card_dai_link_attr_comp_dainame,
+	&asoc_card_dai_link_attr_slot_num,
+	&asoc_card_dai_link_attr_slot_width,
+	&asoc_card_dai_link_attr_rx_mask,
+	&asoc_card_dai_link_attr_tx_mask,
+	&asoc_card_dai_link_attr_mclk_fs,
+	NULL,
+};
+
 static void dai_type_item_release(struct config_item *item)
 {
 	struct config_group *gr = to_config_group(item);
@@ -51,6 +198,8 @@ static void dai_type_item_release(struct config_item *item)
 
 	pr_debug("%s invoked, item = %p, group = %p, dai_link = %p\n",
 		 __func__, item, gr, dl);
+	if (dl->component_dev_name)
+		kfree(dl->component_dev_name);
 }
 
 static struct configfs_item_operations dai_link_type_item_ops = {
@@ -60,6 +209,7 @@ static struct configfs_item_operations dai_link_type_item_ops = {
 static const struct config_item_type dai_link_type = {
 	.ct_item_ops = &dai_link_type_item_ops,
 	.ct_owner = THIS_MODULE,
+	.ct_attrs = asoc_card_dai_link_attrs
 };
 
 static struct config_group *_make_codec_dai_link(struct config_group *group,
