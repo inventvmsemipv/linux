@@ -5,18 +5,111 @@
 #include <sound/soc.h>
 #include <sound/soc-dai.h>
 
+#define MAX_CODECS 4
+#define MAX_CPUS   1
+
+struct asoc_configfs_dai_link {
+	char *component_dev_name;
+	struct bus_type *component_bt;
+	char *component_dai_name;
+	unsigned long slot_num;
+	unsigned long slot_width;
+	unsigned long rx_mask;
+	unsigned long tx_mask;
+	unsigned long mclk_fs;
+	struct config_group group;
+};
+
 struct asoc_configfs_soundcard {
 	const char *name;
 	struct config_group group;
 	int format;
 	int cpu_bitclock_master;
 	int cpu_frameclock_master;
+	int ncpus;
+	struct asoc_configfs_dai_link cpus[MAX_CPUS];
+	int ncodecs;
+	struct asoc_configfs_dai_link codecs[MAX_CODECS];
 };
 
 static inline struct asoc_configfs_soundcard *
 to_asoc_configfs_soundcard(struct config_group *g)
 {
 	return container_of(g, struct asoc_configfs_soundcard, group);
+}
+
+static inline struct asoc_configfs_dai_link *
+to_asoc_configfs_dai_link(struct config_group *g)
+{
+	return container_of(g, struct asoc_configfs_dai_link, group);
+}
+
+static void dai_type_item_release(struct config_item *item)
+{
+	struct config_group *gr = to_config_group(item);
+	struct asoc_configfs_dai_link *dl = to_asoc_configfs_dai_link(gr);
+
+	pr_debug("%s invoked, item = %p, group = %p, dai_link = %p\n",
+		 __func__, item, gr, dl);
+}
+
+static struct configfs_item_operations dai_link_type_item_ops = {
+	.release = dai_type_item_release,
+};
+
+static const struct config_item_type dai_link_type = {
+	.ct_item_ops = &dai_link_type_item_ops,
+	.ct_owner = THIS_MODULE,
+};
+
+static struct config_group *_make_codec_dai_link(struct config_group *group,
+						 const char *name)
+{
+	struct asoc_configfs_soundcard *sc =
+		to_asoc_configfs_soundcard(group);
+	struct asoc_configfs_dai_link *out;
+
+	if (sc->ncodecs >= MAX_CODECS) {
+		pr_err("max %d codec dai links allowed\n", MAX_CPUS);
+		return ERR_PTR(-ENOMEM);
+	}
+
+	out = &sc->codecs[sc->ncodecs++];
+
+	pr_debug("created codec dai link %s, %p\n", name, out);
+
+	config_group_init_type_name(&out->group, name, &dai_link_type);
+	return &out->group;
+}
+
+static struct config_group *_make_cpu_dai_link(struct config_group *group,
+					       const char *name)
+{
+	struct asoc_configfs_soundcard *sc =
+		to_asoc_configfs_soundcard(group);
+	struct asoc_configfs_dai_link *out;
+
+	if (sc->ncpus >= MAX_CPUS) {
+		pr_err("max %d cpu dais allowed\n", MAX_CPUS);
+		return ERR_PTR(-ENOMEM);
+	}
+
+	out = &sc->cpus[sc->ncpus++];
+
+	pr_debug("created cpu dai %s, %p\n", name, out);
+
+	config_group_init_type_name(&out->group, name, &dai_link_type);
+	return &out->group;
+}
+
+static struct config_group *
+single_soundcard_type_make_group(struct config_group *group, const char *name)
+{
+	if (!strncmp(name, "codec", 5))
+		return _make_codec_dai_link(group, name);
+	if (!strncmp(name, "cpu", 3))
+		return _make_cpu_dai_link(group, name);
+	return ERR_PTR(-EINVAL);
 }
 
 static const char *dai_formats[] = {
@@ -101,8 +194,13 @@ static struct configfs_item_operations single_soundcard_type_item_ops = {
 	.release = single_soundcard_type_item_release,
 };
 
+static struct configfs_group_operations single_soundcard_type_group_ops = {
+	.make_group = single_soundcard_type_make_group,
+};
+
 static const struct config_item_type single_soundcard_type = {
 	.ct_item_ops = &single_soundcard_type_item_ops,
+	.ct_group_ops = &single_soundcard_type_group_ops,
 	.ct_attrs = soundcard_root_attrs,
 	.ct_owner = THIS_MODULE,
 };
