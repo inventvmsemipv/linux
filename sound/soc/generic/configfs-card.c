@@ -2,12 +2,15 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/configfs.h>
+#include <linux/platform_device.h>
 #include <linux/i2c.h>
 #include <sound/soc.h>
 #include <sound/soc-dai.h>
 
 #define MAX_CODECS 4
 #define MAX_CPUS   1
+
+static atomic_t asoc_sc_instance ;
 
 struct asoc_configfs_dai_link {
 	char *component_dev_name;
@@ -31,6 +34,7 @@ struct asoc_configfs_soundcard {
 	struct asoc_configfs_dai_link cpus[MAX_CPUS];
 	int ncodecs;
 	struct asoc_configfs_dai_link codecs[MAX_CODECS];
+	struct platform_device *pdev;
 };
 
 static inline struct asoc_configfs_soundcard *
@@ -319,14 +323,40 @@ static ssize_t asoc_card_frameclock_master_store(struct config_item *item,
 	return _set_bitclock_master(page, len, &sc->cpu_frameclock_master);
 }
 
+static ssize_t asoc_card_command_store(struct config_item *item,
+				       const char *page, size_t len)
+{
+	struct asoc_configfs_soundcard *sc =
+		to_asoc_configfs_soundcard(to_config_group(item));
+	struct platform_device *pdev;
+
+	if (strncmp(page, "start", 5)) {
+		pr_err("say start to register and start up the board\n");
+		return -EINVAL;
+	}
+	pdev = platform_device_register_resndata(NULL, sc->name,
+						 atomic_inc_return(&asoc_sc_instance),
+						 NULL, 0,
+						 sc, sizeof(*sc));
+	if (IS_ERR(pdev)) {
+		pr_err("configfs-card: error registering platform device\n");
+		return PTR_ERR(pdev);
+	}
+	sc->pdev = pdev;
+	dev_info(&pdev->dev, "registered (asoc configfs board %s)\n", sc->name);
+	return len;
+}
+
 CONFIGFS_ATTR_WO(asoc_card_, format);
 CONFIGFS_ATTR_WO(asoc_card_, bitclock_master);
 CONFIGFS_ATTR_WO(asoc_card_, frameclock_master);
+CONFIGFS_ATTR_WO(asoc_card_, command);
 
 static struct configfs_attribute *soundcard_root_attrs[] = {
 	&asoc_card_attr_format,
 	&asoc_card_attr_bitclock_master,
 	&asoc_card_attr_frameclock_master,
+	&asoc_card_attr_command,
 	NULL,
 };
 
@@ -337,6 +367,7 @@ static void single_soundcard_type_item_release(struct config_item *item)
 
 	pr_err("%s invoked, item = %p, group = %p, sc = %p\n", __func__, item,
 	       gr, sc);
+	platform_device_unregister(sc->pdev);
 	kfree(sc);
 }
 
