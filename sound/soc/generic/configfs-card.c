@@ -4,38 +4,11 @@
 #include <linux/configfs.h>
 #include <linux/platform_device.h>
 #include <linux/i2c.h>
+#include <sound/soc-configfs-card.h>
 #include <sound/soc.h>
 #include <sound/soc-dai.h>
 
-#define MAX_CODECS 4
-#define MAX_CPUS   1
-
 static atomic_t asoc_sc_instance ;
-
-struct asoc_configfs_dai_link {
-	char *component_dev_name;
-	struct bus_type *component_bt;
-	char *component_dai_name;
-	unsigned long slot_num;
-	unsigned long slot_width;
-	unsigned long rx_mask;
-	unsigned long tx_mask;
-	unsigned long mclk_fs;
-	struct config_group group;
-};
-
-struct asoc_configfs_soundcard {
-	const char *name;
-	struct config_group group;
-	int format;
-	int cpu_bitclock_master;
-	int cpu_frameclock_master;
-	int ncpus;
-	struct asoc_configfs_dai_link cpus[MAX_CPUS];
-	int ncodecs;
-	struct asoc_configfs_dai_link codecs[MAX_CODECS];
-	struct platform_device *pdev;
-};
 
 static inline struct asoc_configfs_soundcard *
 to_asoc_configfs_soundcard(struct config_group *g)
