@@ -6,6 +6,7 @@ snd-soc-audio-graph-card2-objs	:= audio-graph-card2.o
 snd-soc-audio-graph-card2-custom-sample-objs := audio-graph-card2-custom-sample.o
 snd-soc-test-component-objs	:= test-component.o
 snd-soc-configfs-card-objs     := configfs-card.o
+snd-soc-configfs-card-driver-objs := configfs-card-driver.o snd-soc-configfs-card-driver.o
 
 obj-$(CONFIG_SND_SIMPLE_CARD_UTILS)	+= snd-soc-simple-card-utils.o
 obj-$(CONFIG_SND_SIMPLE_CARD)		+= snd-soc-simple-card.o
@@ -13,4 +14,4 @@ obj-$(CONFIG_SND_AUDIO_GRAPH_CARD)	+= snd-soc-audio-graph-card.o
 obj-$(CONFIG_SND_AUDIO_GRAPH_CARD2)	+= snd-soc-audio-graph-card2.o
 obj-$(CONFIG_SND_AUDIO_GRAPH_CARD2_CUSTOM_SAMPLE) += snd-soc-audio-graph-card2-custom-sample.o
 obj-$(CONFIG_SND_TEST_COMPONENT)	+= snd-soc-test-component.o
-obj-$(CONFIG_SND_AUDIO_CONFIGFS_CARD)   += snd-soc-configfs-card.o
+obj-$(CONFIG_SND_AUDIO_CONFIGFS_CARD)   += snd-soc-configfs-card.o snd-soc-configfs-card-driver.o
