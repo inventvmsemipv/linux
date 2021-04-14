@@ -523,24 +523,28 @@ static const u32 tx_ch_maps[] = {
 	0x01234567,
 };
 
-static int map_channels(const struct sun4i_i2s *i2s, int stream)
+static int map_channels(const struct sun4i_i2s *i2s, int stream,
+			int hwparams_nchannels)
 {
-	unsigned int nchannels;
+	unsigned int nchannels, actual_nchannels;
 	unsigned int mask = stream == SNDRV_PCM_STREAM_PLAYBACK ?
 		i2s->tx_mask : i2s->rx_mask;
 	int map_tx = stream == SNDRV_PCM_STREAM_PLAYBACK;
 
 	nchannels = ffs(~mask) - 1;
+	if (hwparams_nchannels > nchannels)
+		return -EINVAL;
+	actual_nchannels = min(nchannels, hwparams_nchannels);
 	if (!map_tx) {
 		/* Rx mapping */
 		regmap_write(i2s->regmap,
 			     SUN8I_I2S_RX_CHAN_MAP_REG,
-			     rx_ch_maps[nchannels]);
+			     rx_ch_maps[actual_nchannels]);
 	} else {
 		/* Tx Mapping */
 		regmap_write(i2s->regmap,
 			     SUN8I_I2S_TX_CHAN_MAP_REG,
-			     tx_ch_maps[nchannels]);
+			     tx_ch_maps[actual_nchannels]);
 	}
 	return 0;
 }
@@ -553,7 +557,7 @@ static int sun8i_i2s_set_chan_cfg(const struct sun4i_i2s *i2s,
 	unsigned int lrck_period;
 
 	/* Map the channels for playback and capture */
-	map_channels(i2s, stream);
+	map_channels(i2s, stream, channels);
 
 	/* Configure the channels */
 	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
