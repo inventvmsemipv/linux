@@ -249,11 +249,6 @@ static int configfs_sc_probe(struct platform_device *pdev)
 
 static int configfs_sc_remove(struct platform_device *pdev)
 {
-	struct configfs_sc_priv *priv = platform_get_drvdata(pdev);
-	struct snd_soc_dai_link *link = &priv->dai_link;
-
-	of_node_put(link->cpus->of_node);
-	snd_soc_of_put_dai_link_codecs(link);
 	return 0;
 }
 
