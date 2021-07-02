@@ -62,7 +62,7 @@ static int configfs_sc_hw_params(struct snd_pcm_substream *substream,
 	}
 
 	rate = params_rate(params);
-	if (rate != 48000) {
+	if (rate != 48000 && rate != 96000) {
 		dev_err(rtd->card->dev, "Unsupported rate: %d\n",
 			params_rate(params));
 		return -EINVAL;
