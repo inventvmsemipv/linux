@@ -116,6 +116,7 @@ config SND_SOC_ALL_CODECS
 	imply SND_SOC_IDT821034
 	imply SND_SOC_INNO_RK3036
 	imply SND_SOC_ISABELLE
+	imply SND_SOC_IVM6303
 	imply SND_SOC_JZ4740_CODEC
 	imply SND_SOC_JZ4725B_CODEC
 	imply SND_SOC_JZ4760_CODEC
@@ -1075,6 +1076,10 @@ config SND_SOC_INNO_RK3036
 config SND_SOC_ISABELLE
 	tristate
 	depends on I2C
+
+config SND_SOC_IVM6303
+       tristate "ivm6303 codec driver"
+       depends on I2C
 
 config SND_SOC_LM49453
 	tristate
