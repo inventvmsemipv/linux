@@ -29,6 +29,44 @@
 /* Base Region */
 #define IVM6303_SYSTEM_CTRL		0x00
 
+/* Base Region */
+#define IVM6303_SYSTEM_CTRL		0x00
+#define IVM6303_SOFTWARE_RESET		0x01
+#define IVM6303_ENABLES_SETTINGS(n)	(0x14 + (n))
+/* ENABLES_SETTINGS_1 */
+# define PLL_EN				BIT(3)
+/* ENABLES_SETTINGS_5 */
+# define SPK_EN				BIT(0)
+# define SPK_MUTE			BIT(1)
+
+#define IVM6303_TDM_APPLY_CONF		0x30
+# define DO_APPLY_CONF			BIT(0)
+# define TDM_RESYNC			BIT(7)
+#define IVM6303_TDM_SETTINGS(n)		(0x30 + (n))
+/* TDM_SETTINGS_1 */
+# define TDM_BCLK_POLARITY		BIT(4)
+# define TDM_FSYN_POLARITY		BIT(5)
+# define TDM_DELAY_MODE			BIT(6)
+# define TDM_SETTINGS_MASK (TDM_BCLK_POLARITY|TDM_FSYN_POLARITY|TDM_DELAY_MODE)
+/* IVM6303_TDM_SETTINGS(3) */
+# define I_SLOT_SIZE_SHIFT		6
+# define I_SLOT_SIZE_MASK		(0x3 << I_SLOT_SIZE_SHIFT)
+/* IVM6303_TDM_SETTINGS(4) */
+# define O_SLOT_SIZE_SHIFT		6
+# define O_SLOT_SIZE_MASK		(0x3 << O_SLOT_SIZE_SHIFT)
+# define O_SLOT_CHAN_SHIFT		0
+# define O_SLOT_CHAN_MASK		(0x1f << O_SLOT_CHAN_SHIFT)
+/* TDM_SETTINGS_5 .. 9 */
+# define I_SLOT_SIZE_SHIFT		6
+# define I_SLOT_SIZE_MASK		(0x3 << I_SLOT_SIZE_SHIFT)
+# define I_SLOT_CHAN_SHIFT		0
+# define I_SLOT_CHAN_MASK		(0x1f << I_SLOT_CHAN_SHIFT)
+/* TDM_SETTINGS_10 .. 16 */
+# define O_DL_SHIFT			6
+# define O_DL_MASK			(0x3 << O_DL_SHIFT)
+# define I_DL_SHIFT			6
+# define I_DL_MASK			(0x3 << I_DL_SHIFT)
+
 #define IVM6303_PAGE_SELECTION		0xfe
 
 struct ivm6303_platform_data {
