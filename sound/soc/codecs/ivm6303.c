@@ -68,6 +68,7 @@
 # define I_DL_MASK			(0x3 << I_DL_SHIFT)
 
 #define IVM6303_PAGE_SELECTION		0xfe
+#define IVM6303_HW_REV			0xff
 
 #define IVM6303_FORMATS (SNDRV_PCM_FMTBIT_S16_LE |	\
 			 SNDRV_PCM_FMTBIT_S24_LE |	\
@@ -82,6 +83,7 @@ struct ivm6303_platform_data {
 struct ivm6303_priv {
 	struct i2c_client	*i2c_client;
 	struct regmap		*regmap;
+	u8			hw_rev;
 };
 
 static int playback_mode_control_get(struct snd_kcontrol *kcontrol,
@@ -178,9 +180,29 @@ static const struct snd_soc_dapm_route ivm6303_dapm_routes[] = {
 	{"AIF CH3-4 TDM OUT", NULL, "PLL"},
 };
 
+static int check_hw_rev(struct snd_soc_component *component)
+{
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int ret;
+	unsigned int rev;
+
+	ret = regmap_read(priv->regmap, IVM6303_HW_REV, &rev);
+	dev_info(component->dev, "ivm6303 rev %2x\n", rev);
+	switch(rev) {
+	case 0xf9:
+	case 0xfa:
+		priv->hw_rev = rev;
+		break;
+	default:
+		dev_err(component->dev, "ivm6303, unknown hw rev");
+		ret = -EINVAL;
+	}
+	return ret;
+}
+
 static int ivm6303_component_probe(struct snd_soc_component *component)
 {
-	return 0;
+	return check_hw_rev(component);
 }
 
 static void ivm6303_component_remove(struct snd_soc_component *component)
