@@ -18,6 +18,7 @@
 #include <linux/workqueue.h>
 #include <linux/clk.h>
 #include <linux/input.h>
+#include <linux/firmware.h>
 #include <sound/soc.h>
 #include <sound/tlv.h>
 #include <sound/asound.h>
@@ -83,6 +84,7 @@ struct ivm6303_platform_data {
 struct ivm6303_priv {
 	struct i2c_client	*i2c_client;
 	struct regmap		*regmap;
+	const struct firmware	*fw;
 	u8			hw_rev;
 };
 
@@ -200,13 +202,109 @@ static int check_hw_rev(struct snd_soc_component *component)
 	return ret;
 }
 
+#define ADDR_INVALID 0xffffffff
+#define VAL_INVALID 0xffffffff
+
+static inline int is_addr(u16 w)
+{
+	return (w & 0xf000) == 0x1000;
+}
+
+static inline int is_val(u16 w)
+{
+	return (w & 0xf000) == 0x0000;
+}
+
+static inline int is_file_end(u16 w)
+{
+	return (w & 0xf000) == 0xf000;
+}
+
+static inline unsigned int to_addr(u16 w)
+{
+	return w & ~0xf000;
+}
+
+static inline unsigned int to_val(u16 w)
+{
+	return w & ~0xf000;
+}
+
+#define MAX_FW_FILENAME_LEN 256
+
+static int load_fw(struct snd_soc_component *component)
+{
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	const struct firmware *fw;
+	int ret, i;
+	int eof_record;
+	u16 *w;
+	unsigned int addr = ADDR_INVALID, val = VAL_INVALID, pg = 0;
+	static char fw_file_name[MAX_FW_FILENAME_LEN];
+
+	snprintf(fw_file_name, sizeof(fw_file_name), "ivm6303-param-%2x.bin",
+		 priv->hw_rev);
+	ret = request_firmware(&priv->fw, fw_file_name, component->dev);
+	if (ret < 0) {
+		dev_err(component->dev, "cannot load firmware");
+		return ret;
+	}
+	fw = priv->fw;
+	for (w = (u16 *)fw->data, i =0, eof_record = -1;
+	     i < (fw->size / 2) && !eof_record; w++, i++) {
+		if (is_file_end(*w)) {
+			eof_record = i;
+			break;
+		}
+		if (is_addr(*w))
+			addr = to_addr(*w);
+		if (is_val(*w))
+			val = to_val(*w);
+		if (addr != ADDR_INVALID && val != VAL_INVALID) {
+			if (addr == 254) {
+				pg = val ? 0x100 : 0x000;
+				addr = ADDR_INVALID;
+				val = VAL_INVALID;
+				continue;
+			}
+
+			/* Write register */
+			ret = regmap_write(priv->regmap, addr | pg, val);
+			if (ret < 0) {
+				dev_err(component->dev,
+					"error writing register");
+				break;
+			}
+			addr = ADDR_INVALID;
+			val = VAL_INVALID;
+		}
+	}
+	dev_info(component->dev, "firmware loaded");
+	if (eof_record < 0)
+		dev_warn(component->dev, "no end of file firmware record");
+	return ret;
+}
+
+static void unload_fw(struct snd_soc_component *component)
+{
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+
+	release_firmware(priv->fw);
+}
+
 static int ivm6303_component_probe(struct snd_soc_component *component)
 {
-	return check_hw_rev(component);
+	int ret;
+
+	ret = check_hw_rev(component);
+	if (ret < 0)
+		return ret;
+	return load_fw(component);
 }
 
 static void ivm6303_component_remove(struct snd_soc_component *component)
 {
+	unload_fw(component);
 }
 
 static struct snd_soc_component_driver soc_component_dev_ivm6303 = {
