@@ -69,12 +69,133 @@
 
 #define IVM6303_PAGE_SELECTION		0xfe
 
+#define IVM6303_FORMATS (SNDRV_PCM_FMTBIT_S16_LE |	\
+			 SNDRV_PCM_FMTBIT_S24_LE |	\
+			 SNDRV_PCM_FMTBIT_S32_LE)
+
+#define IVM6303_I2S_DAI 0
+#define IVM6303_TDM_DAI 1
+
 struct ivm6303_platform_data {
 };
 
 struct ivm6303_priv {
 	struct i2c_client	*i2c_client;
 	struct regmap		*regmap;
+};
+
+static int playback_mode_control_get(struct snd_kcontrol *kcontrol,
+				     struct snd_ctl_elem_value *ucontrol)
+{
+	return 0;
+}
+
+static int playback_mode_control_put(struct snd_kcontrol *kcontrol,
+				     struct snd_ctl_elem_value *ucontrol)
+{
+	return -EPERM;
+}
+
+static const struct snd_kcontrol_new playback_mode_control[] = {
+	SOC_SINGLE_EXT("Playback mode",
+		       0, 0, 1, 0, playback_mode_control_get,
+		       playback_mode_control_put),
+};
+
+int tdm_in_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
+{
+	pr_debug("%s, event %d, stream %s\n", __func__, e, w->sname);
+	return 0;
+}
+
+int i2s_in_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
+{
+	pr_debug("%s, event %d, stream %s\n", __func__, e, w->sname);
+	return 0;
+}
+
+int tdm_out_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
+{
+	pr_debug("%s, event %d, stream %s\n", __func__, e, w->sname);
+	return 0;
+}
+
+int i2s_out_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
+{
+	pr_debug("%s, event %d, stream %s\n", __func__, e, w->sname);
+	return 0;
+}
+
+int playback_mode_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
+			int e)
+{
+	pr_debug("%s: event %d, stream %s\n", __func__, e, w->sname);
+	return 0;
+}
+
+static const struct snd_soc_dapm_widget ivm6303_dapm_widgets[] = {
+	/* PLL */
+	SND_SOC_DAPM_SUPPLY("PLL", IVM6303_ENABLES_SETTINGS(1), 3, 0, NULL, 0),
+	/* Analog Output */
+	SND_SOC_DAPM_OUTPUT("SPK"),
+	/* TDM INPUT (Playback) */
+	SND_SOC_DAPM_AIF_IN_E("AIF TDM IN", "TDM Playback", 0,
+			      SND_SOC_NOPM, 0, 0,
+			      tdm_in_event,
+			      SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+	/* I2S INPUT (Playback) */
+	SND_SOC_DAPM_AIF_IN_E("AIF I2S IN", "I2S Playback", 0,
+			      SND_SOC_NOPM, 0, 0,
+			      i2s_in_event,
+			      SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_PGA_E("CLASS-D", IVM6303_ENABLES_SETTINGS(5), 0, 0,
+			   playback_mode_control, 1,
+			   playback_mode_event,
+			   SND_SOC_DAPM_PRE_PMU|SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_AIF_OUT_E("AIF CH1-2 I2S OUT", "I2S Capture", 0,
+			       SND_SOC_NOPM, 0, 0,
+			       i2s_out_event,
+			       SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_AIF_OUT_E("AIF CH1-2 TDM OUT", "TDM Capture", 0,
+			       SND_SOC_NOPM, 0, 0,
+			       tdm_out_event,
+			       SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_AIF_OUT_E("AIF CH3-4 TDM OUT", "TDM Capture", 0,
+			       SND_SOC_NOPM, 0, 0,
+			       tdm_out_event,
+			       SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+};
+
+static const struct snd_soc_dapm_route ivm6303_dapm_routes[] = {
+	/* sink | control | source */
+	{"AIF TDM IN", NULL, "PLL" },
+	{"AIF I2S IN", NULL, "PLL" },
+	{"CLASS-D", NULL, "AIF TDM IN"},
+	{"CLASS-D", NULL, "AIF I2S IN"},
+	{"SPK", NULL, "CLASS-D"},
+	{"AIF CH1-2 I2S OUT", NULL, "PLL"},
+	{"AIF CH1-2 TDM OUT", NULL, "PLL"},
+	{"AIF CH3-4 TDM OUT", NULL, "PLL"},
+};
+
+static int ivm6303_component_probe(struct snd_soc_component *component)
+{
+	return 0;
+}
+
+static void ivm6303_component_remove(struct snd_soc_component *component)
+{
+}
+
+static struct snd_soc_component_driver soc_component_dev_ivm6303 = {
+	.probe		= ivm6303_component_probe,
+	.remove		= ivm6303_component_remove,
+	.controls	= NULL,
+	.num_controls	= 0,
+	.dapm_widgets	= ivm6303_dapm_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(ivm6303_dapm_widgets),
+	.dapm_routes	= ivm6303_dapm_routes,
+	.num_dapm_routes = ARRAY_SIZE(ivm6303_dapm_routes),
 };
 
 static const struct regmap_range_cfg ivm6303_range_cfg[] = {
@@ -119,6 +240,71 @@ static const struct regmap_config regmap_config = {
 	.cache_type = REGCACHE_NONE,
 };
 
+static int ivm6303_dummy_hw_params(struct snd_pcm_substream *ss,
+				   struct snd_pcm_hw_params *hwp,
+				   struct snd_soc_dai *dai)
+{
+	return 0;
+}
+
+static int ivm6303_dummy_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
+{
+	return 0;
+}
+
+const struct snd_soc_dai_ops ivm6303_i2s_dai_ops = {
+	.hw_params	= ivm6303_dummy_hw_params,
+	.set_fmt	= ivm6303_dummy_set_fmt,
+};
+
+const struct snd_soc_dai_ops ivm6303_tdm_dai_ops = {
+	.hw_params	= ivm6303_dummy_hw_params,
+	.set_fmt	= ivm6303_dummy_set_fmt,
+};
+
+static struct snd_soc_dai_driver ivm6303_dais[] = {
+	{
+		.name = "ivm6303-i2s",
+		.id = IVM6303_I2S_DAI,
+		.playback = {
+			.stream_name = "I2S Playback",
+			.channels_min = 1,
+			.channels_max = 1,
+			.rates = SNDRV_PCM_RATE_KNOT,
+			.formats = IVM6303_FORMATS,
+		},
+		.capture = {
+			.stream_name = "I2S Capture",
+			.channels_min = 1,
+			.channels_max = 2,
+			.rates = SNDRV_PCM_RATE_KNOT,
+			.formats = IVM6303_FORMATS,
+		},
+		.ops = &ivm6303_i2s_dai_ops,
+		.symmetric_rate = 1,
+	},
+	{
+		.name = "ivm6303-tdm",
+		.id = IVM6303_TDM_DAI,
+		.playback = {
+			.stream_name = "TDM Playback",
+			.channels_min = 1,
+			.channels_max = 4,
+			.rates = SNDRV_PCM_RATE_KNOT,
+			.formats = IVM6303_FORMATS,
+		},
+		.capture = {
+			.stream_name = "TDM Capture",
+			.channels_min = 1,
+			.channels_max = 16,
+			.rates = SNDRV_PCM_RATE_KNOT,
+			.formats = IVM6303_FORMATS,
+		},
+		.ops = &ivm6303_tdm_dai_ops,
+		.symmetric_rate = 1,
+	},
+};
+
 static int ivm6303_probe(struct i2c_client *client)
 {
 	struct ivm6303_priv  *priv;
@@ -149,6 +335,10 @@ static int ivm6303_probe(struct i2c_client *client)
 	}
 
 	i2c_set_clientdata(client, priv);
+	ret = devm_snd_soc_register_component(&client->dev,
+					      &soc_component_dev_ivm6303,
+					      ivm6303_dais,
+					      ARRAY_SIZE(ivm6303_dais));
 end:
 	return ret;
 }
