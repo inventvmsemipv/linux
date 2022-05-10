@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+// Copyright (C) 2017 Icenowy Zheng <icenowy@aosc.io>
+// Copyright (C) 2022 Inventvm
+
+/dts-v1/;
+#include "sun50i-h5-nanopi-neo2.dtsi"
+
+#include <dt-bindings/gpio/gpio.h>
+
+/ {
+	model = "Inventvm IVM0005";
+	compatible = "inventvm,ivn0005", "friendlyarm,nanopi-neo2", "allwinner,sun50i-h5";
+};
+
+&i2s0 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2s0_pins>;
+};
+
+&i2s1 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2s1_pins>;
+};
+
+&pio {
+	i2s0_pins: i2s0_pinmux {
+		pins = "PA18", "PA19", "PA20", "PA21", "PA6";
+		function = "i2s0";
+	};
+
+	i2s1_pins: i2s1_pinmux {
+		pins = "PG10", "PG11", "PG12", "PG13";
+		function = "i2s1";
+	};
+};
+
+&usb_otg {
+       dr_mode = "peripheral";
+};
+
+&mmc1 {
+	status = "disabled";
+};
+
+&mmc2 {
+	status = "disabled";
+};
