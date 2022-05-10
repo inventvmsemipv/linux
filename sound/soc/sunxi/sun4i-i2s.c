@@ -526,7 +526,7 @@ static const u32 tx_ch_maps[] = {
 static int map_channels(const struct sun4i_i2s *i2s, int stream,
 			int hwparams_nchannels)
 {
-	unsigned int nchannels, actual_nchannels;
+	int nchannels, actual_nchannels;
 	unsigned int mask = stream == SNDRV_PCM_STREAM_PLAYBACK ?
 		i2s->tx_mask : i2s->rx_mask;
 	int map_tx = stream == SNDRV_PCM_STREAM_PLAYBACK;
