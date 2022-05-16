@@ -139,6 +139,7 @@ struct ivm6303_priv {
 	int			delay;
 	int			inverted_fsync;
 	int			inverted_bclk;
+	enum ivm6303_section_type  playback_mode_fw_section;
 	struct ivm6303_fw_section fw_sections[IVM6303_N_SECTIONS];
 };
 
@@ -183,13 +184,44 @@ static int _run_fw_section(struct snd_soc_component *component, int s)
 static int playback_mode_control_get(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
+	struct snd_soc_component *c = snd_soc_dapm_kcontrol_component(kcontrol);
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(c);
+	unsigned int v;
+
+	dev_dbg(c->dev, "%s called\n", __func__);
+	switch(priv->playback_mode_fw_section) {
+	case IVM6303_SPEAKER_MODE:
+		v = 1;
+		break;
+	case IVM6303_RECEIVER_MODE:
+		v = 0;
+		break;
+	default:
+		return -EIO;
+	}
+	ucontrol->value.integer.value[0] = v;
 	return 0;
 }
 
 static int playback_mode_control_put(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
-	return -EPERM;
+	struct snd_soc_component *c = snd_soc_dapm_kcontrol_component(kcontrol);
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(c);
+
+	dev_dbg(c->dev, "%s called (%ld)\n", __func__,
+		ucontrol->value.integer.value[0]);
+	switch(ucontrol->value.integer.value[0]) {
+	case 0:
+		priv->playback_mode_fw_section = IVM6303_RECEIVER_MODE;
+		break;
+	case 1:
+		priv->playback_mode_fw_section = IVM6303_SPEAKER_MODE;
+		break;
+	default:
+		return -EINVAL;
+	}
+	return 0;
 }
 
 static const struct snd_kcontrol_new playback_mode_control[] = {
@@ -225,7 +257,34 @@ int i2s_out_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
 int playback_mode_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
 			int e)
 {
+	struct snd_soc_component *component =
+		snd_soc_dapm_to_component(w->dapm);
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int ret = 0;
+
 	pr_debug("%s: event %d, stream %s\n", __func__, e, w->sname);
+
+	mutex_lock(&priv->regmap_mutex);
+	switch(e) {
+	case SND_SOC_DAPM_PRE_PMU:
+		/* Run playback mode (speaker or receiver) fw section ... */
+		ret = _run_fw_section(component,
+				      priv->playback_mode_fw_section);
+		if (ret < 0)
+			break;
+		/* And finally the PRE_PMU section */
+		ret = _run_fw_section(component, IVM6303_PRE_PMU_WRITES);
+		break;
+	case SND_SOC_DAPM_POST_PMD:
+		break;
+	default:
+		dev_err(component->dev, "%s: unexpected event %d\n",
+			__func__, e);
+	}
+	mutex_unlock(&priv->regmap_mutex);
+	if (ret < 0)
+		dev_err(component->dev, "%s: error in event handling",
+			__func__);
 	return 0;
 }
 
@@ -1347,6 +1406,7 @@ static int ivm6303_probe(struct i2c_client *client)
 		ret = PTR_ERR(priv->regmap);
 		dev_err(&client->dev, "regmap init failed\n");
 	}
+	priv->playback_mode_fw_section = IVM6303_SPEAKER_MODE;
 
 	i2c_set_clientdata(client, priv);
 	ret = devm_snd_soc_register_component(&client->dev,
