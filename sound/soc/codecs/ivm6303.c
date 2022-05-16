@@ -89,6 +89,11 @@ struct ivm6303_priv {
 	/* Total number of stream slots */
 	int			slots;
 	int			slot_width;
+	int			i2s;
+	int			fsync_edge;
+	int			delay;
+	int			inverted_fsync;
+	int			inverted_bclk;
 };
 
 static int playback_mode_control_get(struct snd_kcontrol *kcontrol,
@@ -370,8 +375,95 @@ static int ivm6303_dummy_hw_params(struct snd_pcm_substream *ss,
 	return 0;
 }
 
-static int ivm6303_dummy_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
+static int _set_protocol(struct snd_soc_dai *dai, unsigned int fmt)
 {
+	struct snd_soc_component *component = dai->component;
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+
+	priv->i2s = priv->delay = priv->inverted_fsync =
+		priv->fsync_edge = priv->inverted_bclk = 0;
+
+	if ((dai->id == IVM6303_I2S_DAI) &&
+	    ((fmt & SND_SOC_DAIFMT_FORMAT_MASK) != SND_SOC_DAIFMT_I2S)) {
+		dev_err(component->dev, "Non I2S format requested for I2S dai");
+		return -EINVAL;
+	}
+	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
+	case SND_SOC_DAIFMT_IB_IF:
+		priv->inverted_bclk = 1;
+		/* FALLTHROUGH */
+	case SND_SOC_DAIFMT_NB_IF:
+		priv->inverted_fsync = 1;
+		break;
+	case SND_SOC_DAIFMT_IB_NF:
+		priv->inverted_bclk = 1;
+		break;
+	default:
+		break;
+	}
+
+	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
+	case SND_SOC_DAIFMT_I2S:
+		priv->i2s = 1;
+		priv->delay = 1;
+		break;
+	case SND_SOC_DAIFMT_DSP_A:
+		priv->delay = 1;
+		break;
+	case SND_SOC_DAIFMT_DSP_B:
+		break;
+	default:
+		dev_err(component->dev, "unsupported protocol %d\n",
+			fmt & SND_SOC_DAIFMT_FORMAT_MASK);
+		return -EINVAL;
+	}
+	/*
+	 * Truth table
+	 *
+	 * i2s  |   inverted_fsync  | fsync_edge
+	 * -----+-------------------+------------
+	 *  0   |         0         |      1
+	 *  0   |         1         |      0
+	 *  1   |         0         |      0
+	 *  1   |         1         |      1
+	 */
+	priv->fsync_edge = (priv->i2s == priv->inverted_fsync);
+
+	return 0;
+}
+
+static int ivm6303_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
+{
+	int ret;
+	struct snd_soc_component *component = dai->component;
+
+	dev_dbg(component->dev, "%s(): fmt = 0x%08x\n", __func__, fmt);
+
+	/* Master/slave configuration */
+	if ((fmt & SND_SOC_DAIFMT_MASTER_MASK) != SND_SOC_DAIFMT_CBS_CFS) {
+		dev_err(component->dev,
+			"%s: codec can only be slave\n", __func__);
+		return -EINVAL;
+	}
+	/* Clock gating */
+	switch (fmt & SND_SOC_DAIFMT_CLOCK_MASK) {
+	case SND_SOC_DAIFMT_CONT: /* continuous clock */
+		dev_dbg(component->dev, "%s: IF0 Clock is continuous.\n",
+			__func__);
+		break;
+	case SND_SOC_DAIFMT_GATED: /* clock is gated */
+		dev_dbg(component->dev, "%s: IF0 Clock is gated.\n",
+			__func__);
+		break;
+	default:
+		dev_err(component->dev,
+			"%s: ERROR: Unsupported clock mask (0x%x)!\n",
+			__func__, fmt & SND_SOC_DAIFMT_CLOCK_MASK);
+		return -EINVAL;
+	}
+	ret= _set_protocol(dai, fmt);
+	if (ret < 0)
+		return ret;
 	return 0;
 }
 
@@ -566,12 +658,12 @@ static int ivm6303_get_channel_map(struct snd_soc_dai *dai,
 
 const struct snd_soc_dai_ops ivm6303_i2s_dai_ops = {
 	.hw_params	= ivm6303_dummy_hw_params,
-	.set_fmt	= ivm6303_dummy_set_fmt,
+	.set_fmt	= ivm6303_set_fmt,
 };
 
 const struct snd_soc_dai_ops ivm6303_tdm_dai_ops = {
 	.hw_params	= ivm6303_dummy_hw_params,
-	.set_fmt	= ivm6303_dummy_set_fmt,
+	.set_fmt	= ivm6303_set_fmt,
 	.set_tdm_slot   = ivm6303_set_tdm_slot,
 	.set_channel_map = ivm6303_set_channel_map,
 	.get_channel_map = ivm6303_get_channel_map,
