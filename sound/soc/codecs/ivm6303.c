@@ -86,6 +86,9 @@ struct ivm6303_priv {
 	struct regmap		*regmap;
 	const struct firmware	*fw;
 	u8			hw_rev;
+	/* Total number of stream slots */
+	int			slots;
+	int			slot_width;
 };
 
 static int playback_mode_control_get(struct snd_kcontrol *kcontrol,
@@ -372,6 +375,104 @@ static int ivm6303_dummy_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	return 0;
 }
 
+static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
+				unsigned int tx_mask,
+				unsigned int rx_mask,
+				int slots, int slot_width)
+{
+	struct snd_soc_component *component = dai->component;
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	unsigned int w, i, ch;
+	int stat;
+
+	if (dai->id != IVM6303_TDM_DAI) {
+		dev_err(component->dev,
+			"set_tdm_slot called for a non tdm dai");
+		return -ENOTSUPP;
+	}
+	if (!slots) {
+		/* Disable TDM, error for the moment */
+		dev_err(component->dev,
+			"This is a TDM DAI, you can't disable TDM\n");
+		return -EINVAL;
+	}
+	if (slots > 31) {
+		dev_err(component->dev, "Max 31 slots supported\n");
+		return -EINVAL;
+	}
+	if (hweight32(tx_mask) > 4) {
+		dev_err(component->dev, "Max 4 tx slots supported\n");
+		return -EINVAL;
+	}
+	if (hweight32(rx_mask) > 1) {
+		dev_err(component->dev, "Max 1 rx slots supported\n");
+		return -EINVAL;
+	}
+	switch (slot_width) {
+	case 16:
+		w = 1 << I_SLOT_SIZE_SHIFT;
+		break;
+	case 20:
+		w = 0 << I_SLOT_SIZE_SHIFT;
+		break;
+	case 24:
+		w = 2 << I_SLOT_SIZE_SHIFT;
+		break;
+	case 32:
+		w = 3 << I_SLOT_SIZE_SHIFT;
+		break;
+	default:
+		dev_err(component->dev,
+			"%s: Unsupported slot width 0x%x\n",
+			__func__, slot_width);
+		return -EINVAL;
+	}
+	priv->slots = slots;
+	priv->slot_width = slot_width;
+
+	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(3),
+				  I_SLOT_SIZE_MASK << I_SLOT_SIZE_SHIFT, w);
+	if (stat < 0) {
+		dev_err(component->dev, "error writing input slot size\n");
+		return stat;
+	}
+	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(4),
+				  O_SLOT_SIZE_MASK << O_SLOT_SIZE_SHIFT, w);
+	if (stat < 0) {
+		dev_err(component->dev, "error writing output slot size\n");
+		return stat;
+	}
+	ch = 0;
+	while ((i = ffs(tx_mask))) {
+		/* Tx slot i is active and assigned to channel ch */
+		/* i ranges from 1 to 31, 0 means not assigned */
+		stat = regmap_write(priv->regmap,
+				    IVM6303_TDM_SETTINGS(0xb) + (ch << 1),
+				    i);
+		if (stat < 0) {
+			dev_err(component->dev, "error setting up tx slot\n");
+			return stat;
+		}
+		tx_mask &= ~(1 << (i - 1));
+		ch++;
+	}
+	ch = 0;
+	while ((i = ffs(rx_mask))) {
+		/* Rx slot i is active and assigned to channel ch */
+		/* i ranges from 1 to 31, 0 means not assigned */
+		stat = regmap_write(priv->regmap,
+				    IVM6303_TDM_SETTINGS(0x5) + (ch << 1),
+				    i);
+		if (stat < 0) {
+			dev_err(component->dev, "error setting up tx slot\n");
+			return stat;
+		}
+		rx_mask &= ~(1 << (i - 1));
+		ch++;
+	}
+	return 0;
+}
+
 static int ivm6303_set_channel_map(struct snd_soc_dai *dai,
 				   unsigned int tx_num,
 				   unsigned int *tx_slot,
@@ -471,6 +572,7 @@ const struct snd_soc_dai_ops ivm6303_i2s_dai_ops = {
 const struct snd_soc_dai_ops ivm6303_tdm_dai_ops = {
 	.hw_params	= ivm6303_dummy_hw_params,
 	.set_fmt	= ivm6303_dummy_set_fmt,
+	.set_tdm_slot   = ivm6303_set_tdm_slot,
 	.set_channel_map = ivm6303_set_channel_map,
 	.get_channel_map = ivm6303_get_channel_map,
 };
