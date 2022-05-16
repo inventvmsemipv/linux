@@ -78,6 +78,13 @@
 #define IVM6303_I2S_DAI 0
 #define IVM6303_TDM_DAI 1
 
+enum ivm_tdm_size {
+	IVM_TDM_SIZE_16 = 1,
+	IVM_TDM_SIZE_20 = 0,
+	IVM_TDM_SIZE_24 = 2,
+	IVM_TDM_SIZE_32 = 3,
+};
+
 struct ivm6303_platform_data {
 };
 
@@ -368,11 +375,224 @@ static const struct regmap_config regmap_config = {
 	.cache_type = REGCACHE_NONE,
 };
 
-static int ivm6303_dummy_hw_params(struct snd_pcm_substream *ss,
-				   struct snd_pcm_hw_params *hwp,
-				   struct snd_soc_dai *dai)
+static int _set_sam_size(struct snd_soc_component *component,
+			 unsigned int stream,
+			 unsigned int samsize)
 {
-	return 0;
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int ret = 0, i;
+
+	switch (stream) {
+	case SNDRV_PCM_STREAM_CAPTURE:
+		/* TDM_CHxO_DL */
+		for (i = 0; i < 4; i++) {
+			ret = regmap_update_bits(priv->regmap,
+						 IVM6303_TDM_SETTINGS(10 + 2*i),
+						 O_DL_MASK,
+						 samsize << O_DL_SHIFT);
+			if (ret < 0)
+				break;
+		}
+		break;
+	case SNDRV_PCM_STREAM_PLAYBACK:
+		for (i = 0; i < 5; i++) {
+			/* TDM_CHxI_DL */
+			ret = regmap_update_bits(priv->regmap,
+						 IVM6303_TDM_SETTINGS(5 + i),
+						 I_DL_MASK,
+						 samsize << I_DL_SHIFT);
+			if (ret < 0)
+				break;
+		}
+		break;
+	default:
+		dev_err(component->dev, "%s: invalid stream\n", __func__);
+		ret = -EINVAL;
+	}
+	return ret;
+}
+
+static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
+{
+	int ret;
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	unsigned long osr, rate;
+	/* See register 0x32 */
+	u8 tdm_fsyn_sr, tdm_bclk_osr;
+
+	/* Disable PLL */
+	regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(1),
+			   PLL_EN, 0);
+	switch (bclk) {
+	case 12288000:
+		/* 12.288MHz */
+		regmap_write(priv->regmap, 0x80, 0x10);
+		regmap_write(priv->regmap, 0x81, 0x20);
+		regmap_write(priv->regmap, 0x82, 0x40);
+		break;
+	case 6144000:
+		/* 6.144MHz */
+		regmap_write(priv->regmap, 0x80, 0x10);
+		regmap_write(priv->regmap, 0x81, 0x20);
+		regmap_write(priv->regmap, 0x82, 0x20);
+		break;
+	case 3072000:
+		/* 3.072MHz */
+		regmap_write(priv->regmap, 0x80, 0x10);
+		regmap_write(priv->regmap, 0x81, 0x60);
+		regmap_write(priv->regmap, 0x82, 0x30);
+		break;
+	case 1536000:
+		/* 1.536MHz: FIXME: IS THIS CORRECT ? */
+		regmap_write(priv->regmap, 0x80, 0x20);
+		regmap_write(priv->regmap, 0x81, 0x60);
+		regmap_write(priv->regmap, 0x82, 0x30);
+		break;
+	default:
+		dev_err(component->dev, "unsupported bclk\n");
+		return -EINVAL;
+	}
+	/* Re-enable PLL */
+	ret = regmap_update_bits(priv->regmap,
+				 IVM6303_ENABLES_SETTINGS(1), PLL_EN, PLL_EN);
+	if (ret < 0)
+		return ret;
+
+	/*
+	 * Also setup TDM registers (FIXME: this should actually belong
+	 *  to another method ...)
+	 */
+	osr = priv->slots * priv->slot_width;
+	rate = bclk / osr;
+
+	switch(rate) {
+	case 16000:
+		tdm_fsyn_sr = 0x10;
+		break;
+	case 48000:
+		tdm_fsyn_sr = 0x20;
+		break;
+	case 96000:
+		tdm_fsyn_sr = 0x30;
+		break;
+	case 192000:
+		tdm_fsyn_sr = 0x40;
+		break;
+	default:
+		dev_err(component->dev, "unsupported rate %lu\n", rate);
+		break;
+	}
+
+	switch (osr) {
+	case 64:
+		tdm_bclk_osr = 1;
+		break;
+	case 96:
+		tdm_bclk_osr = 2;
+		break;
+	case 128:
+		tdm_bclk_osr = 3;
+		break;
+	case 192:
+		tdm_bclk_osr = 4;
+		break;
+	case 256:
+		tdm_bclk_osr = 5;
+		break;
+	case 288:
+		tdm_bclk_osr = 6;
+		break;
+	case 384:
+		tdm_bclk_osr = 7;
+		break;
+	case 512:
+		tdm_bclk_osr = 8;
+		dev_err(component->dev,
+			"unsupported oversample rate %lu\n", rate);
+		break;
+	}
+	return regmap_update_bits(priv->regmap, 0x32, 0x7f,
+				  tdm_fsyn_sr | tdm_bclk_osr);
+}
+
+static int ivm6303_hw_params(struct snd_pcm_substream *substream,
+			     struct snd_pcm_hw_params *params,
+			     struct snd_soc_dai *codec_dai)
+{
+	struct snd_soc_component *component = codec_dai->component;
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	unsigned int bps = params_width(params);
+	unsigned int pbps = params_physical_width(params);
+	unsigned int rate = params_rate(params);
+	unsigned int channels = params_channels(params), minch, maxch;
+	unsigned int samsize, bclk;
+	int ret;
+
+	dev_dbg(component->dev,
+		"%s(): entry , bps : %u , rate : %u, channels : %u\n",
+		__func__, bps, rate, channels);
+
+	if (bps != 16 && bps != 24 && bps != 32) {
+		dev_err(component->dev, "invalid bits per sample %u\n", bps);
+		return -EINVAL;
+	}
+
+	if (bps > priv->slot_width) {
+		dev_err(component->dev, "Requested slotsize is too big\n");
+		return -EINVAL;
+	}
+
+	if (pbps < 16 || pbps > 32) {
+		dev_err(component->dev, "invalid phy size %u\n", pbps);
+		return -EINVAL;
+	}
+
+	if (rate != 48000 && rate != 96000) {
+		dev_err(component->dev, "invalid rate %u\n", rate);
+		return -EINVAL;
+	}
+
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+		minch = codec_dai->driver->playback.channels_min;
+		maxch = codec_dai->driver->playback.channels_max;
+	}
+
+	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
+		minch = codec_dai->driver->capture.channels_min;
+		maxch = codec_dai->driver->capture.channels_max;
+	}
+
+	if (channels > maxch || channels < minch) {
+		dev_err(component->dev, "invalid chan num %u for stream\n",
+			channels);
+		return -EINVAL;
+	}
+
+	bclk = rate;
+
+	switch (bps) {
+	case 16:
+		samsize = IVM_TDM_SIZE_16;
+		break;
+	case 24:
+	case 32:
+		samsize = IVM_TDM_SIZE_24;
+		break;
+	default:
+		/* NEVER REACHED */
+		return -EINVAL;
+	}
+
+	bclk *= priv->slots * priv->slot_width;
+	dev_dbg(component->dev, "bclk = %uHz\n", bclk);
+
+	/* Set PLL given bclk */
+	ret = _setup_pll(component, bclk);
+	if (ret < 0)
+		return ret;
+
+	/* Set samples and slots sizes */
+	return _set_sam_size(component, substream->stream, samsize);
 }
 
 static int _set_protocol(struct snd_soc_dai *dai, unsigned int fmt)
@@ -657,12 +877,12 @@ static int ivm6303_get_channel_map(struct snd_soc_dai *dai,
 }
 
 const struct snd_soc_dai_ops ivm6303_i2s_dai_ops = {
-	.hw_params	= ivm6303_dummy_hw_params,
+	.hw_params	= ivm6303_hw_params,
 	.set_fmt	= ivm6303_set_fmt,
 };
 
 const struct snd_soc_dai_ops ivm6303_tdm_dai_ops = {
-	.hw_params	= ivm6303_dummy_hw_params,
+	.hw_params	= ivm6303_hw_params,
 	.set_fmt	= ivm6303_set_fmt,
 	.set_tdm_slot   = ivm6303_set_tdm_slot,
 	.set_channel_map = ivm6303_set_channel_map,
