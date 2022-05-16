@@ -372,6 +372,97 @@ static int ivm6303_dummy_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	return 0;
 }
 
+static int ivm6303_set_channel_map(struct snd_soc_dai *dai,
+				   unsigned int tx_num,
+				   unsigned int *tx_slot,
+				   unsigned int rx_num,
+				   unsigned int *rx_slot)
+{
+	struct snd_soc_component *component = dai->component;
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	unsigned int i, v, r;
+	int stat;
+
+	if (tx_num > 4) {
+		dev_err(component->dev, "Invalid number of tx channels");
+		return -EINVAL;
+	}
+	for (i = 0; i < tx_num; i++) {
+		v = tx_slot[i] + 1;
+		r = IVM6303_TDM_SETTINGS(0xb) + (i << 1);
+		stat = regmap_write(priv->regmap, r, v);
+		if (stat < 0) {
+			dev_err(component->dev, "Error writing register %u\n",
+				r);
+			return stat;
+		}
+	}
+	if (rx_num > 1) {
+		dev_err(component->dev, "Invalid number of rx channels");
+		return -EINVAL;
+	}
+	v = rx_slot[0] + 1;
+	r = IVM6303_TDM_SETTINGS(0x5);
+	stat = regmap_write(priv->regmap, r, v);
+	if (stat < 0)
+		dev_err(component->dev, "Error writing register %u\n", r);
+	return stat;
+}
+
+static int ivm6303_get_channel_map(struct snd_soc_dai *dai,
+				   unsigned int *tx_num,
+				   unsigned int *tx_slot,
+				   unsigned int *rx_num,
+				   unsigned int *rx_slot)
+{
+	struct snd_soc_component *component = dai->component;
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int stat, ch;
+	unsigned int v, r;
+
+	/* tx -> output channels (1-4) */
+	/*
+	 * For each channel. Note that 4 output channels are available,
+	 * and we assume that all active channels are consecutive:
+	 * for instance the sequence 1,2,4 is __not__ allowed. You __must__
+	 * have 1,2,3
+	 */
+	for (ch = 0, *tx_num = 0; ch < 4; ch++) {
+		/*
+		 * Each channel can be assigned 2 slots, we just consider
+		 * the first one. So we read registers 0x3b, 0x3d, ....
+		 */
+		r = IVM6303_TDM_SETTINGS(0xb) + (ch << 1);
+		stat = regmap_read(priv->regmap, r, &v);
+		if (stat < 0) {
+			dev_err(component->dev,
+				"Error reading register %u\n", r);
+			return stat;
+		}
+		/* v is equal to <slsz>|<slot # for this channel + 1 */
+		v &= 0x1f;
+		if (!v)
+			break;
+		*tx_slot++ = v - 1;
+		(*tx_num)++;
+	}
+	/* We only consider channel 1, which is the one played back */
+	r = IVM6303_TDM_SETTINGS(0x5);
+	*rx_num = 0;
+	stat = regmap_read(priv->regmap, r, &v);
+	if (stat < 0) {
+		dev_err(component->dev,
+			"Error reading register %u\n", r);
+		return stat;
+	}
+	v &= 0x1f;
+	if (v) {
+		*rx_slot++ = v - 1;
+		(*rx_num)++;
+	}
+	return stat;
+}
+
 const struct snd_soc_dai_ops ivm6303_i2s_dai_ops = {
 	.hw_params	= ivm6303_dummy_hw_params,
 	.set_fmt	= ivm6303_dummy_set_fmt,
@@ -380,6 +471,8 @@ const struct snd_soc_dai_ops ivm6303_i2s_dai_ops = {
 const struct snd_soc_dai_ops ivm6303_tdm_dai_ops = {
 	.hw_params	= ivm6303_dummy_hw_params,
 	.set_fmt	= ivm6303_dummy_set_fmt,
+	.set_channel_map = ivm6303_set_channel_map,
+	.get_channel_map = ivm6303_get_channel_map,
 };
 
 static struct snd_soc_dai_driver ivm6303_dais[] = {
