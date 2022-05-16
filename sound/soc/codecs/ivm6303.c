@@ -19,6 +19,7 @@
 #include <linux/clk.h>
 #include <linux/input.h>
 #include <linux/firmware.h>
+#include <linux/workqueue.h>
 #include <sound/soc.h>
 #include <sound/tlv.h>
 #include <sound/asound.h>
@@ -89,6 +90,7 @@ struct ivm6303_platform_data {
 };
 
 struct ivm6303_priv {
+	struct delayed_work	tdm_apply_work;
 	struct i2c_client	*i2c_client;
 	struct regmap		*regmap;
 	const struct firmware	*fw;
@@ -307,19 +309,55 @@ static void unload_fw(struct snd_soc_component *component)
 	release_firmware(priv->fw);
 }
 
+static void tdm_apply_handler(struct work_struct * work)
+{
+	struct ivm6303_priv *priv = container_of(work, struct ivm6303_priv,
+						 tdm_apply_work.work);
+	int ret;
+	unsigned int v = 0;
+
+	ret = regmap_update_bits(priv->regmap, IVM6303_TDM_APPLY_CONF,
+				 DO_APPLY_CONF, DO_APPLY_CONF);
+	if (ret < 0)
+		pr_err("%s: error setting tdm config\n", __func__);
+	udelay(1000);
+	if (priv->delay)
+		v |= TDM_DELAY_MODE;
+	if (priv->fsync_edge)
+		v |= TDM_FSYN_POLARITY;
+	if (priv->inverted_bclk)
+		v |= TDM_BCLK_POLARITY;
+	ret = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(1),
+				 TDM_SETTINGS_MASK, v);
+	if (ret < 0)
+		pr_err("%s: error setting tdm config\n", __func__);
+}
+
 static int ivm6303_component_probe(struct snd_soc_component *component)
 {
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 	int ret;
 
+	WARN_ON(!priv);
+	if (!priv)
+		return -ENODEV;
 	ret = check_hw_rev(component);
 	if (ret < 0)
 		return ret;
-	return load_fw(component);
+	ret = load_fw(component);
+	if (ret < 0)
+		return ret;
+	INIT_DELAYED_WORK(&priv->tdm_apply_work, tdm_apply_handler);
+	snd_soc_component_init_regmap(component, priv->regmap);
+	return ret;
 }
 
 static void ivm6303_component_remove(struct snd_soc_component *component)
 {
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+
 	unload_fw(component);
+	cancel_delayed_work_sync(&priv->tdm_apply_work);
 }
 
 static struct snd_soc_component_driver soc_component_dev_ivm6303 = {
@@ -876,9 +914,24 @@ static int ivm6303_get_channel_map(struct snd_soc_dai *dai,
 	return stat;
 }
 
+static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
+			       struct snd_soc_dai *dai)
+{
+	struct snd_soc_component *component = dai->component;
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+
+	if (cmd == SNDRV_PCM_TRIGGER_START) {
+		dev_dbg(component->dev, "%s, start trigger cmd\n", __func__);
+		return schedule_delayed_work(&priv->tdm_apply_work, HZ/100);
+	}
+	return 0;
+}
+
+
 const struct snd_soc_dai_ops ivm6303_i2s_dai_ops = {
 	.hw_params	= ivm6303_hw_params,
 	.set_fmt	= ivm6303_set_fmt,
+	.trigger	= ivm6303_dai_trigger,
 };
 
 const struct snd_soc_dai_ops ivm6303_tdm_dai_ops = {
@@ -887,6 +940,7 @@ const struct snd_soc_dai_ops ivm6303_tdm_dai_ops = {
 	.set_tdm_slot   = ivm6303_set_tdm_slot,
 	.set_channel_map = ivm6303_set_channel_map,
 	.get_channel_map = ivm6303_get_channel_map,
+	.trigger	= ivm6303_dai_trigger,
 };
 
 static struct snd_soc_dai_driver ivm6303_dais[] = {
