@@ -927,11 +927,25 @@ static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 	return 0;
 }
 
+static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
+{
+	struct snd_soc_component *component = dai->component;
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+
+	if (stream != SNDRV_PCM_STREAM_PLAYBACK)
+		/* Ignore mute on capture */
+		return 0;
+
+	dev_dbg(component->dev, "%s(): mute = %d\n", __func__, mute);
+	return regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(5),
+				  SPK_MUTE, mute ? SPK_MUTE : 0);
+}
 
 const struct snd_soc_dai_ops ivm6303_i2s_dai_ops = {
 	.hw_params	= ivm6303_hw_params,
 	.set_fmt	= ivm6303_set_fmt,
 	.trigger	= ivm6303_dai_trigger,
+	.mute_stream	= ivm6303_dai_mute,
 };
 
 const struct snd_soc_dai_ops ivm6303_tdm_dai_ops = {
@@ -941,6 +955,7 @@ const struct snd_soc_dai_ops ivm6303_tdm_dai_ops = {
 	.set_channel_map = ivm6303_set_channel_map,
 	.get_channel_map = ivm6303_get_channel_map,
 	.trigger	= ivm6303_dai_trigger,
+	.mute_stream	= ivm6303_dai_mute,
 };
 
 static struct snd_soc_dai_driver ivm6303_dais[] = {
