@@ -12,7 +12,7 @@
 struct configfs_sc_tdm_data {
 	unsigned int rx_mask;
 	unsigned int tx_mask;
-	int slots;
+	unsigned long total_slots;
 	int slot_width;
 };
 
@@ -113,7 +113,7 @@ static int configfs_sc_late_probe(struct snd_soc_card *card)
 
 	tdata = &priv->tdm_data[0];
 	ret = snd_soc_dai_set_tdm_slot(asoc_rtd_to_cpu(rtd, 0), tdata->tx_mask,
-				       tdata->rx_mask, tdata->slots,
+				       tdata->rx_mask, tdata->total_slots,
 				       tdata->slot_width);
 	if (ret < 0)
 		return ret;
@@ -121,7 +121,8 @@ static int configfs_sc_late_probe(struct snd_soc_card *card)
 		tdata = &priv->tdm_data[i + 1];
 		ret = snd_soc_dai_set_tdm_slot(asoc_rtd_to_codec(rtd, i),
 					       tdata->tx_mask, tdata->rx_mask,
-					       tdata->slots, tdata->slot_width);
+					       tdata->total_slots,
+					       tdata->slot_width);
 		if (ret < 0)
 			return ret;
 	}
@@ -221,7 +222,7 @@ static int configfs_sc_probe(struct platform_device *pdev)
 	tdata = &priv->tdm_data[0];
 	tdata->tx_mask = configfs_data->cpus[0].tx_mask;
 	tdata->rx_mask = configfs_data->cpus[0].rx_mask;
-	tdata->slots = configfs_data->cpus[0].slot_num;
+	tdata->total_slots = configfs_data->total_slots;
 	tdata->slot_width = configfs_data->cpus[0].slot_width;
 
 	/* Parse codecs' tdm slots configurations */
@@ -229,7 +230,7 @@ static int configfs_sc_probe(struct platform_device *pdev)
 		tdata = &priv->tdm_data[i + 1];
 		tdata->tx_mask = configfs_data->codecs[i].tx_mask;
 		tdata->rx_mask = configfs_data->codecs[i].rx_mask;
-		tdata->slots = configfs_data->codecs[i].slot_num;
+		tdata->total_slots = configfs_data->total_slots;
 		tdata->slot_width = configfs_data->codecs[i].slot_width;
 	}
 
