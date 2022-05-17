@@ -260,6 +260,8 @@ static ssize_t asoc_card_format_store(struct config_item *item,
 	for (i = SND_SOC_DAIFMT_I2S; i <= SND_SOC_DAIFMT_PDM; i++)
 		if (!strncmp(page, dai_formats[i], strlen(dai_formats[i]))) {
 			sc->format = i;
+			if (i == SND_SOC_DAIFMT_I2S)
+				sc->total_slots = 2;
 			return len;
 		}
 	return -EINVAL;
@@ -320,16 +322,29 @@ static ssize_t asoc_card_command_store(struct config_item *item,
 	return len;
 }
 
+static ssize_t asoc_card_total_slots_store(struct config_item *item,
+					   const char *page, size_t len)
+{
+	struct asoc_configfs_soundcard *sc =
+		to_asoc_configfs_soundcard(to_config_group(item));
+	int ret;
+
+	ret = kstrtoul(page, 10, &sc->total_slots);
+	return ret < 0 ? ret : len;
+}
+
 CONFIGFS_ATTR_WO(asoc_card_, format);
 CONFIGFS_ATTR_WO(asoc_card_, bitclock_master);
 CONFIGFS_ATTR_WO(asoc_card_, frameclock_master);
 CONFIGFS_ATTR_WO(asoc_card_, command);
+CONFIGFS_ATTR_WO(asoc_card_, total_slots);
 
 static struct configfs_attribute *soundcard_root_attrs[] = {
 	&asoc_card_attr_format,
 	&asoc_card_attr_bitclock_master,
 	&asoc_card_attr_frameclock_master,
 	&asoc_card_attr_command,
+	&asoc_card_attr_total_slots,
 	NULL,
 };
 

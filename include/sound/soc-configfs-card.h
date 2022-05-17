@@ -33,6 +33,8 @@ struct asoc_configfs_soundcard {
 	int cpu_bitclock_master;
 	int cpu_frameclock_master;
 	int ncpus;
+	/* Total number of slots for TDM */
+	unsigned long total_slots;
 	struct asoc_configfs_dai_link cpus[MAX_CPUS];
 	int ncodecs;
 	struct asoc_configfs_dai_link codecs[MAX_CODECS];
