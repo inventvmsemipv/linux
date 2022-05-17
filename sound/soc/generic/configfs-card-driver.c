@@ -44,29 +44,13 @@ static int configfs_sc_hw_params(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
 	struct configfs_sc_priv *priv = snd_soc_card_get_drvdata(rtd->card);
-	struct snd_soc_dai *codec_dai;
-	int bps, i;
-	unsigned int rate;
+	struct snd_soc_dai *codec_dai, *cpu_dai;
+	int i;
 
 	dev_dbg(rtd->card->dev, "%s entered\n", __func__);
 
-	bps = snd_pcm_format_width(params_format(params));
-	if (bps < 0) {
-		dev_err(rtd->card->dev, "Invalid bps: %d\n", bps);
-		return bps;
-	}
-
-	if (bps != 16 && bps != 24 && bps != 32) {
-		dev_err(rtd->card->dev, "Unsupported bps: %d\n", bps);
-		return -EINVAL;
-	}
-
-	rate = params_rate(params);
-	if (rate != 48000 && rate != 96000) {
-		dev_err(rtd->card->dev, "Unsupported rate: %d\n",
-			params_rate(params));
-		return -EINVAL;
-	}
+	cpu_dai = asoc_rtd_to_cpu(rtd, 0);
+	snd_soc_dai_set_fmt(cpu_dai, priv->fmt);
 
 	for_each_rtd_codec_dais(rtd, i, codec_dai)
 		snd_soc_dai_set_fmt(codec_dai, priv->fmt);
