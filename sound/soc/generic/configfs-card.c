@@ -91,17 +91,6 @@ static ssize_t asoc_card_dai_link_comp_dainame_store(struct config_item *item,
 }
 
 
-static ssize_t asoc_card_dai_link_slot_num_store(struct config_item *item,
-						 const char *page, size_t len)
-{
-	struct asoc_configfs_dai_link *dl =
-		to_asoc_configfs_dai_link(to_config_group(item));
-	int ret;
-
-	ret = kstrtoul(page, 10, &dl->slot_num);
-	return ret < 0 ? ret : len;
-}
-
 static ssize_t asoc_card_dai_link_slot_width_store(struct config_item *item,
 						   const char *page, size_t len)
 {
@@ -150,7 +139,6 @@ static ssize_t asoc_card_dai_link_mclk_fs_store(struct config_item *item,
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, comp_bustype);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, comp_devname);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, comp_dainame);
-CONFIGFS_ATTR_WO(asoc_card_dai_link_, slot_num);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, slot_width);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, rx_mask);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, tx_mask);
@@ -160,7 +148,6 @@ static struct configfs_attribute *asoc_card_dai_link_attrs[] = {
 	&asoc_card_dai_link_attr_comp_bustype,
 	&asoc_card_dai_link_attr_comp_devname,
 	&asoc_card_dai_link_attr_comp_dainame,
-	&asoc_card_dai_link_attr_slot_num,
 	&asoc_card_dai_link_attr_slot_width,
 	&asoc_card_dai_link_attr_rx_mask,
 	&asoc_card_dai_link_attr_tx_mask,

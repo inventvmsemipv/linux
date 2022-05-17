@@ -18,7 +18,6 @@ struct asoc_configfs_dai_link {
 	char *component_dev_name;
 	struct bus_type *component_bt;
 	char *component_dai_name;
-	unsigned long slot_num;
 	unsigned long slot_width;
 	unsigned long rx_mask;
 	unsigned long tx_mask;
