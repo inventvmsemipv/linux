@@ -90,7 +90,30 @@ enum ivm_tdm_size {
 	IVM_TDM_SIZE_32 = 3,
 };
 
+enum ivm6303_section_type {
+	IVM6303_PROBE_WRITES = 1,
+	IVM6303_PRE_PMU_WRITES,
+	IVM6303_POST_PMD_WRITES,
+	IVM6303_STREAM_START,
+	IVM6303_STREAM_STOP,
+	IVM6303_SPEAKER_MODE,
+	IVM6303_RECEIVER_MODE,
+	IVM6303_N_SECTIONS,
+};
+
 struct ivm6303_platform_data {
+};
+
+struct ivm6303_register {
+	u16 addr;
+	u16 val;
+};
+
+#define IVM6303_SECTION_MAX_REGISTERS 512
+
+struct ivm6303_fw_section {
+	struct ivm6303_register *regs;
+	int nregs;
 };
 
 struct ivm6303_priv {
@@ -107,7 +130,43 @@ struct ivm6303_priv {
 	int			delay;
 	int			inverted_fsync;
 	int			inverted_bclk;
+	struct ivm6303_fw_section fw_sections[IVM6303_N_SECTIONS];
 };
+
+static int run_fw_section(struct snd_soc_component *component, int s)
+{
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	struct ivm6303_fw_section *section;
+	struct ivm6303_register *r;
+	int i, ret = 0;
+
+	dev_dbg(component->dev, "running fw section %d\n", s);
+	if (s < IVM6303_PROBE_WRITES || s >= IVM6303_N_SECTIONS) {
+		dev_err(component->dev, "trying to run invalid section %d", s);
+		return -EINVAL;
+	}
+	section = &priv->fw_sections[s];
+	if (!section->regs) {
+		dev_dbg(component->dev, "trying to run empty section %d", s);
+		return ret;
+	}
+	for (i = 0; i < section->nregs; i++) {
+		if (i >= IVM6303_SECTION_MAX_REGISTERS) {
+			dev_err(component->dev, "%s, too many registers\n",
+				__func__);
+			ret = -ENOMEM;
+			break;
+		}
+		r = &section->regs[i];
+		ret = regmap_write(priv->regmap, r->addr, r->val);
+		if (ret < 0) {
+			dev_err(component->dev, "error writing to register %u",
+				r->addr);
+			break;
+		}
+	}
+	return ret;
+}
 
 static int playback_mode_control_get(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
@@ -241,6 +300,11 @@ static inline int is_file_end(u16 w)
 	return (w & 0xf000) == 0xf000;
 }
 
+static inline int is_new_section(u16 w)
+{
+	return (w & 0x2000) == 0x2000;
+}
+
 static inline unsigned int to_addr(u16 w)
 {
 	return w & ~0xf000;
@@ -253,6 +317,48 @@ static inline unsigned int to_val(u16 w)
 
 #define MAX_FW_FILENAME_LEN 256
 
+static int alloc_fw_section(struct snd_soc_component *component,
+			    enum ivm6303_section_type t)
+{
+	struct ivm6303_fw_section *s;
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+
+	if (t >= IVM6303_N_SECTIONS) {
+		dev_err(component->dev, "invalid section type");
+		return -EINVAL;
+	}
+	s = &priv->fw_sections[t];
+	if (s->regs) {
+		dev_err(component->dev, "section has already been filled");
+		return -EBUSY;
+	}
+	s->regs = devm_kzalloc(component->dev,
+			       IVM6303_SECTION_MAX_REGISTERS * sizeof(*s),
+			       GFP_KERNEL);
+	if (!s->regs) {
+		dev_err(component->dev, "error allocating fw section");
+		return -ENOMEM;
+	}
+	s->nregs = 0;
+	return 0;
+}
+
+static void free_fw_section(struct snd_soc_component *component,
+			    enum ivm6303_section_type t)
+{
+	struct ivm6303_fw_section *s;
+	struct ivm6303_register *tmp;
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+
+	s = &priv->fw_sections[t];
+	tmp = s->regs;
+	/* Lock needed ? */
+	s->nregs = 0;
+	s->regs = NULL;
+	barrier();
+	devm_kfree(component->dev, tmp);
+}
+
 static int load_fw(struct snd_soc_component *component)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
@@ -260,7 +366,8 @@ static int load_fw(struct snd_soc_component *component)
 	int ret, i;
 	int eof_record;
 	u16 *w;
-	unsigned int addr = ADDR_INVALID, val = VAL_INVALID, pg = 0;
+	unsigned int addr = ADDR_INVALID, val = VAL_INVALID, pg = 0,
+	    section = IVM6303_PROBE_WRITES, reg_index = 0;
 	static char fw_file_name[MAX_FW_FILENAME_LEN];
 
 	snprintf(fw_file_name, sizeof(fw_file_name), "ivm6303-param-%2x.bin",
@@ -271,8 +378,12 @@ static int load_fw(struct snd_soc_component *component)
 		return ret;
 	}
 	fw = priv->fw;
+	ret = alloc_fw_section(component, IVM6303_PROBE_WRITES);
+	if (ret < 0)
+		return ret;
+	dev_dbg(component->dev, "firmware size = %d\n", fw->size);
 	for (w = (u16 *)fw->data, i =0, eof_record = -1;
-	     i < (fw->size / 2) && !eof_record; w++, i++) {
+	     i < (fw->size / 2) && eof_record < 0; w++, i++) {
 		if (is_file_end(*w)) {
 			eof_record = i;
 			break;
@@ -281,7 +392,24 @@ static int load_fw(struct snd_soc_component *component)
 			addr = to_addr(*w);
 		if (is_val(*w))
 			val = to_val(*w);
+		if (is_new_section(*w)) {
+			section = to_val(*w);
+			dev_dbg(component->dev, "firmware: new section %u\n",
+				section);
+			if (section > IVM6303_PROBE_WRITES) {
+				ret = alloc_fw_section(component, section);
+				dev_dbg(component->dev, "alloc new section\n");
+				if (ret < 0)
+					return ret;
+				/* Start new section from scratch */
+				addr = ADDR_INVALID;
+				val = VAL_INVALID;
+				reg_index = 0;
+			}
+		}
 		if (addr != ADDR_INVALID && val != VAL_INVALID) {
+			struct ivm6303_register *r;
+
 			if (addr == 254) {
 				pg = val ? 0x100 : 0x000;
 				addr = ADDR_INVALID;
@@ -289,15 +417,18 @@ static int load_fw(struct snd_soc_component *component)
 				continue;
 			}
 
-			/* Write register */
-			ret = regmap_write(priv->regmap, addr | pg, val);
-			if (ret < 0) {
-				dev_err(component->dev,
-					"error writing register");
-				break;
-			}
+			r = &priv->fw_sections[section].regs[reg_index++];
+			r->addr = addr | pg;
+			r->val = val;
+			priv->fw_sections[section].nregs++;
 			addr = ADDR_INVALID;
 			val = VAL_INVALID;
+			if (reg_index >= IVM6303_SECTION_MAX_REGISTERS) {
+				dev_err(component->dev,
+					"too many registers in section %d",
+					section);
+				return -ENOMEM;
+			}
 		}
 	}
 	dev_info(component->dev, "firmware loaded");
@@ -309,7 +440,10 @@ static int load_fw(struct snd_soc_component *component)
 static void unload_fw(struct snd_soc_component *component)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int i;
 
+	for (i = IVM6303_PROBE_WRITES; i < IVM6303_N_SECTIONS; i++)
+		free_fw_section(component, i);
 	release_firmware(priv->fw);
 }
 
@@ -353,7 +487,7 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 		return ret;
 	INIT_DELAYED_WORK(&priv->tdm_apply_work, tdm_apply_handler);
 	snd_soc_component_init_regmap(component, priv->regmap);
-	return ret;
+	return run_fw_section(component, IVM6303_PROBE_WRITES);
 }
 
 static void ivm6303_component_remove(struct snd_soc_component *component)
