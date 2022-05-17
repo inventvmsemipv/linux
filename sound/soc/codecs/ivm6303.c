@@ -76,6 +76,10 @@
 			 SNDRV_PCM_FMTBIT_S24_LE |	\
 			 SNDRV_PCM_FMTBIT_S32_LE)
 
+#define IVM6303_RATES (SNDRV_PCM_RATE_16000 |			\
+		       SNDRV_PCM_RATE_48000 |			\
+		       SNDRV_PCM_RATE_96000)
+
 #define IVM6303_I2S_DAI 0
 #define IVM6303_TDM_DAI 1
 
@@ -585,7 +589,7 @@ static int ivm6303_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	if (rate != 48000 && rate != 96000) {
+	if (rate < 16000 && rate > 96000) {
 		dev_err(component->dev, "invalid rate %u\n", rate);
 		return -EINVAL;
 	}
@@ -966,14 +970,14 @@ static struct snd_soc_dai_driver ivm6303_dais[] = {
 			.stream_name = "I2S Playback",
 			.channels_min = 1,
 			.channels_max = 1,
-			.rates = SNDRV_PCM_RATE_KNOT,
+			.rates = IVM6303_RATES,
 			.formats = IVM6303_FORMATS,
 		},
 		.capture = {
 			.stream_name = "I2S Capture",
 			.channels_min = 1,
 			.channels_max = 2,
-			.rates = SNDRV_PCM_RATE_KNOT,
+			.rates = IVM6303_RATES,
 			.formats = IVM6303_FORMATS,
 		},
 		.ops = &ivm6303_i2s_dai_ops,
@@ -986,14 +990,14 @@ static struct snd_soc_dai_driver ivm6303_dais[] = {
 			.stream_name = "TDM Playback",
 			.channels_min = 1,
 			.channels_max = 4,
-			.rates = SNDRV_PCM_RATE_KNOT,
+			.rates = IVM6303_RATES,
 			.formats = IVM6303_FORMATS,
 		},
 		.capture = {
 			.stream_name = "TDM Capture",
 			.channels_min = 1,
 			.channels_max = 16,
-			.rates = SNDRV_PCM_RATE_KNOT,
+			.rates = IVM6303_RATES,
 			.formats = IVM6303_FORMATS,
 		},
 		.ops = &ivm6303_tdm_dai_ops,
