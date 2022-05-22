@@ -588,6 +588,75 @@ static int _set_sam_size(struct snd_soc_component *component,
 	return ret;
 }
 
+/*
+ * PLL input divider table
+ *
+ * Frequencies:
+ * 16 * 1 => 16
+ * 16 * 3 => 48
+ * 16 * 6 => 96
+ *
+ * For each frequency
+ * 2 channels
+ * 4 channels
+ * 8 channels
+ * 16 channels
+ *
+ * Always 32 bits per slot
+ */
+enum chan_index {
+	CH2 = 0,
+	CH4 = 1,
+	CH8 = 2,
+	CH16 = 3,
+	MAX_CHANNELS,
+};
+
+static inline int chan_to_index(int ch)
+{
+	/* ch must be a power of 2 */
+	if (ch & (ch - 1))
+		return -EINVAL;
+	return ilog2(ch) - 1;
+}
+
+#define RATEK(r) ((r)/16000)
+
+enum fsyn_rates {
+	RATE_16K = RATEK(16000),
+	RATE_48K = RATEK(48000),
+	RATE_96K = RATEK(96000),
+	MAX_FSYN_RATES
+};
+
+static const unsigned int ivm6303_fsyn[MAX_FSYN_RATES] = {
+	[RATE_16K] = 0x10,
+	[RATE_48K] = 0x20,
+	[RATE_96K] = 0x30,
+};
+
+#define OSR(r)  ((r) / 32)
+
+#define OSR_64  OSR(64)
+#define OSR_96  OSR(96)
+#define OSR_128 OSR(128)
+#define OSR_192 OSR(192)
+#define OSR_256 OSR(256)
+#define OSR_288 OSR(288)
+#define OSR_384 OSR(384)
+#define OSR_512 OSR(512)
+
+static const unsigned int ivm6303_osr[] = {
+	[OSR_64] =  1,
+	[OSR_96] =  2,
+	[OSR_128] = 3,
+	[OSR_192] = 4,
+	[OSR_256] = 5,
+	[OSR_288] = 6,
+	[OSR_384] = 7,
+	[OSR_512] = 8,
+};
+
 static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 {
 	int ret;
@@ -641,52 +710,22 @@ static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 	osr = priv->slots * priv->slot_width;
 	rate = bclk / osr;
 
-	switch(rate) {
-	case 16000:
-		tdm_fsyn_sr = 0x10;
-		break;
-	case 48000:
-		tdm_fsyn_sr = 0x20;
-		break;
-	case 96000:
-		tdm_fsyn_sr = 0x30;
-		break;
-	case 192000:
-		tdm_fsyn_sr = 0x40;
-		break;
-	default:
-		dev_err(component->dev, "unsupported rate %lu\n", rate);
-		break;
+	tdm_fsyn_sr = ivm6303_fsyn[rate/16000];
+
+	if ((OSR(osr) < OSR_64) || (OSR(osr) > OSR_512)) {
+		dev_err(component->dev, "invalid osr %lu", osr);
+		return -EINVAL;
 	}
 
-	switch (osr) {
-	case 64:
-		tdm_bclk_osr = 1;
-		break;
-	case 96:
-		tdm_bclk_osr = 2;
-		break;
-	case 128:
-		tdm_bclk_osr = 3;
-		break;
-	case 192:
-		tdm_bclk_osr = 4;
-		break;
-	case 256:
-		tdm_bclk_osr = 5;
-		break;
-	case 288:
-		tdm_bclk_osr = 6;
-		break;
-	case 384:
-		tdm_bclk_osr = 7;
-		break;
-	case 512:
-		tdm_bclk_osr = 8;
-		dev_err(component->dev,
-			"unsupported oversample rate %lu\n", rate);
-		break;
+	tdm_bclk_osr = ivm6303_osr[OSR(osr)];
+	/*
+	 * Table is sparse, 0 indicates osr is not supported
+	 */
+	if (!tdm_bclk_osr) {
+		dev_err(component->dev, "unsupported osr %lu", osr);
+		return -EINVAL;
 	}
+
 	return regmap_update_bits(priv->regmap, 0x32, 0x7f,
 				  tdm_fsyn_sr | tdm_bclk_osr);
 }
