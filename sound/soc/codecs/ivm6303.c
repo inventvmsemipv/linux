@@ -69,6 +69,14 @@
 # define I_DL_SHIFT			6
 # define I_DL_MASK			(0x3 << I_DL_SHIFT)
 
+#define IVM6303_PLL_SETTINGS(x)		((x) + 0x80)
+#define PLL_POST_DIVIDER_MASK		0x0f
+#define PLL_POST_DIVIDER_SHIFT		4
+#define PLL_FEEDB_DIV_MSB_MASK		0x01
+#define PLL_FEEDB_DIV_MSB_SHIFT		0
+#define PLL_INPUT_DIVIDER_MASK		0x0f
+#define PLL_INPUT_DIVIDER_SHIFT		4
+
 #define IVM6303_PAGE_SELECTION		0xfe
 #define IVM6303_HW_REV			0xff
 
@@ -122,6 +130,7 @@ struct ivm6303_priv {
 	struct regmap		*regmap;
 	const struct firmware	*fw;
 	u8			hw_rev;
+	struct mutex		regmap_mutex;
 	/* Total number of stream slots */
 	int			slots;
 	int			slot_width;
@@ -133,7 +142,10 @@ struct ivm6303_priv {
 	struct ivm6303_fw_section fw_sections[IVM6303_N_SECTIONS];
 };
 
-static int run_fw_section(struct snd_soc_component *component, int s)
+/*
+ * Assumes regmap mutex taken
+ */
+static int _run_fw_section(struct snd_soc_component *component, int s)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 	struct ivm6303_fw_section *section;
@@ -268,8 +280,10 @@ static int check_hw_rev(struct snd_soc_component *component)
 	int ret;
 	unsigned int rev;
 
+	mutex_lock(&priv->regmap_mutex);
 	ret = regmap_read(priv->regmap, IVM6303_HW_REV, &rev);
-	dev_info(component->dev, "ivm6303 rev %2x\n", rev);
+	if (ret < 0)
+		goto err;
 	switch(rev) {
 	case 0xf9:
 	case 0xfa:
@@ -279,6 +293,10 @@ static int check_hw_rev(struct snd_soc_component *component)
 		dev_err(component->dev, "ivm6303, unknown hw rev");
 		ret = -EINVAL;
 	}
+err:
+	mutex_unlock(&priv->regmap_mutex);
+	if (!ret)
+		dev_info(component->dev, "ivm6303 rev %2x\n", rev);
 	return ret;
 }
 
@@ -454,6 +472,7 @@ static void tdm_apply_handler(struct work_struct * work)
 	int ret;
 	unsigned int v = 0;
 
+	mutex_lock(&priv->regmap_mutex);
 	ret = regmap_update_bits(priv->regmap, IVM6303_TDM_APPLY_CONF,
 				 DO_APPLY_CONF, DO_APPLY_CONF);
 	if (ret < 0)
@@ -467,6 +486,7 @@ static void tdm_apply_handler(struct work_struct * work)
 		v |= TDM_BCLK_POLARITY;
 	ret = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(1),
 				 TDM_SETTINGS_MASK, v);
+	mutex_unlock(&priv->regmap_mutex);
 	if (ret < 0)
 		pr_err("%s: error setting tdm config\n", __func__);
 }
@@ -487,7 +507,10 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 		return ret;
 	INIT_DELAYED_WORK(&priv->tdm_apply_work, tdm_apply_handler);
 	snd_soc_component_init_regmap(component, priv->regmap);
-	return run_fw_section(component, IVM6303_PROBE_WRITES);
+	mutex_lock(&priv->regmap_mutex);
+	ret = _run_fw_section(component, IVM6303_PROBE_WRITES);
+	mutex_unlock(&priv->regmap_mutex);
+	return ret;
 }
 
 static void ivm6303_component_remove(struct snd_soc_component *component)
@@ -549,8 +572,10 @@ static const struct regmap_config regmap_config = {
 	.volatile_reg = ivm6303_volatile_register,
 
 	.cache_type = REGCACHE_NONE,
+	.disable_locking = 1,
 };
 
+/* Assumes regmap mutex taken */
 static int _set_sam_size(struct snd_soc_component *component,
 			 unsigned int stream,
 			 unsigned int samsize)
@@ -657,64 +682,156 @@ static const unsigned int ivm6303_osr[] = {
 	[OSR_512] = 8,
 };
 
+static const unsigned int
+ivm6303_pll_input_div[MAX_FSYN_RATES][MAX_CHANNELS] = {
+	[RATE_16K] = {
+		[CH2] = 1,
+		[CH4] = 1,
+		[CH8] = 2,
+		[CH16] = 4,
+	},
+	[RATE_48K] = {
+		[CH2] = 1,
+		[CH4] = 2,
+		[CH8] = 4,
+		[CH16] = 8,
+	},
+	[RATE_96K] = {
+		[CH2] = 2,
+		[CH4] = 4,
+		[CH8] = 8,
+	},
+};
+
+#define VCO_FREQ 98304000UL
+#define PLL_POST_DIVIDER 2
+
+/* Assumes regmap mutex taken */
+static int _disable_pll(struct snd_soc_component *component)
+{
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	unsigned int v;
+	int ret, out;
+
+	ret = regmap_read(priv->regmap, IVM6303_ENABLES_SETTINGS(1), &v);
+	if (ret < 0) {
+		dev_err(component->dev, "error reading pll enable bit");
+		return ret;
+	}
+
+	out = v & PLL_EN;
+
+	if (!out)
+		/* Already disabled */
+		return out;
+	ret = regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(1),
+				 PLL_EN, 0);
+	if (ret < 0)
+		dev_err(component->dev, "error writing pll enable bit");
+	return ret < 0 ? ret : out;
+}
+
+/* Assumes regmap mutex taken */
+static int _restore_pll(struct snd_soc_component *component, int en)
+{
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int ret;
+
+	ret = regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(1),
+				 PLL_EN, en);
+	if (ret < 0)
+		dev_err(component->dev, "error restoring pll enable bit");
+	return ret;
+}
+
+/* Assumes regmap mutex taken */
 static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 {
-	int ret;
+	int ret, ch_index, pll_status;
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
-	unsigned long osr, rate;
-	/* See register 0x32 */
-	u8 tdm_fsyn_sr, tdm_bclk_osr;
+	unsigned long osr, rate, ratek, refclk, pll_input_divider,
+		pll_feedback_divider;
+	u8 tdm_fsyn_sr, tdm_bclk_osr, shift, mask, v;
 
-	/* Disable PLL */
-	regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(1),
-			   PLL_EN, 0);
-	switch (bclk) {
-	case 12288000:
-		/* 12.288MHz */
-		regmap_write(priv->regmap, 0x80, 0x10);
-		regmap_write(priv->regmap, 0x81, 0x20);
-		regmap_write(priv->regmap, 0x82, 0x40);
-		break;
-	case 6144000:
-		/* 6.144MHz */
-		regmap_write(priv->regmap, 0x80, 0x10);
-		regmap_write(priv->regmap, 0x81, 0x20);
-		regmap_write(priv->regmap, 0x82, 0x20);
-		break;
-	case 3072000:
-		/* 3.072MHz */
-		regmap_write(priv->regmap, 0x80, 0x10);
-		regmap_write(priv->regmap, 0x81, 0x60);
-		regmap_write(priv->regmap, 0x82, 0x30);
-		break;
-	case 1536000:
-		/* 1.536MHz: FIXME: IS THIS CORRECT ? */
-		regmap_write(priv->regmap, 0x80, 0x20);
-		regmap_write(priv->regmap, 0x81, 0x60);
-		regmap_write(priv->regmap, 0x82, 0x30);
-		break;
-	default:
-		dev_err(component->dev, "unsupported bclk\n");
-		return -EINVAL;
-	}
-	/* Re-enable PLL */
-	ret = regmap_update_bits(priv->regmap,
-				 IVM6303_ENABLES_SETTINGS(1), PLL_EN, PLL_EN);
-	if (ret < 0)
-		return ret;
-
-	/*
-	 * Also setup TDM registers (FIXME: this should actually belong
-	 *  to another method ...)
-	 */
 	osr = priv->slots * priv->slot_width;
 	rate = bclk / osr;
+	ratek = RATEK(rate);
+	if (ratek < RATE_16K || ratek >= MAX_FSYN_RATES) {
+		dev_err(component->dev, "unsupported fsyn rate %lu\n", rate);
+		return -EINVAL;
+	}
+	ch_index = chan_to_index(priv->slots);
+	if (ch_index < CH2 || ch_index > CH16) {
+		dev_err(component->dev, "unsupported number of channels");
+		return -EINVAL;
+	}
+	pll_input_divider = ivm6303_pll_input_div[ratek][ch_index];
+	if (!pll_input_divider) {
+		dev_err(component->dev, "unsupported channels/rate combo");
+		return -EINVAL;
+	}
+	dev_dbg(component->dev, "pll_input_divider = %lu\n", pll_input_divider);
+	refclk = bclk / pll_input_divider;
+	dev_dbg(component->dev, "refclk = %lu", refclk);
+	pll_feedback_divider = VCO_FREQ / refclk;
+	dev_dbg(component->dev, "feedback divider = %lu", pll_feedback_divider);
 
-	tdm_fsyn_sr = ivm6303_fsyn[rate/16000];
+	/* Disable PLL */
+	ret = _disable_pll(component);
+	if (ret < 0) {
+		dev_err(component->dev, "error disabling pll");
+		goto err;
+	}
+	pll_status = ret;
+	/* Write post divider */
+	shift = PLL_POST_DIVIDER_SHIFT;
+	mask = PLL_POST_DIVIDER_MASK;
+	ret = regmap_update_bits(priv->regmap, IVM6303_PLL_SETTINGS(0),
+				 mask << shift, (PLL_POST_DIVIDER/2) << shift);
+	if (ret < 0) {
+		dev_err(component->dev, "error writing post divider");
+		goto err;
+	}
+	/* Write feedback divider msb */
+	shift = PLL_FEEDB_DIV_MSB_SHIFT;
+	mask = PLL_FEEDB_DIV_MSB_MASK;
+	v = (pll_feedback_divider & 0x100) >> 8;
+	ret = regmap_update_bits(priv->regmap, IVM6303_PLL_SETTINGS(0),
+				 mask << shift, v << shift);
+	if (ret < 0) {
+		dev_err(component->dev, "error writing feedback div. msb");
+		goto err;
+	}
+	/* Write feedback divider lsb */
+	v = pll_feedback_divider & 0xff;
+	ret = regmap_write(priv->regmap, IVM6303_PLL_SETTINGS(1), v);
+	if (ret < 0) {
+		dev_err(component->dev, "error writing feedback div.");
+		return ret;
+	}
+	/* Write input divider */
+	shift = PLL_INPUT_DIVIDER_SHIFT;
+	mask = PLL_INPUT_DIVIDER_MASK;
+	ret = regmap_update_bits(priv->regmap, IVM6303_PLL_SETTINGS(2),
+				 mask << shift, pll_input_divider);
+	if (ret < 0) {
+		dev_err(component->dev,"error writing input divider");
+		goto err;
+	}
+
+	/* Restore original pll status */
+	ret = _restore_pll(component, pll_status);
+	if (ret < 0) {
+		dev_err(component->dev, "error restoring pll status");
+		goto err;
+	}
+
+	tdm_fsyn_sr = ivm6303_fsyn[ratek];
 
 	if ((OSR(osr) < OSR_64) || (OSR(osr) > OSR_512)) {
 		dev_err(component->dev, "invalid osr %lu", osr);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err;
 	}
 
 	tdm_bclk_osr = ivm6303_osr[OSR(osr)];
@@ -723,11 +840,14 @@ static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 	 */
 	if (!tdm_bclk_osr) {
 		dev_err(component->dev, "unsupported osr %lu", osr);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err;
 	}
 
-	return regmap_update_bits(priv->regmap, 0x32, 0x7f,
-				  tdm_fsyn_sr | tdm_bclk_osr);
+	ret = regmap_update_bits(priv->regmap, 0x32, 0x7f,
+				 tdm_fsyn_sr | tdm_bclk_osr);
+err:
+	return ret;
 }
 
 static int ivm6303_hw_params(struct snd_pcm_substream *substream,
@@ -801,16 +921,22 @@ static int ivm6303_hw_params(struct snd_pcm_substream *substream,
 	bclk *= priv->slots * priv->slot_width;
 	dev_dbg(component->dev, "bclk = %uHz\n", bclk);
 
+	mutex_lock(&priv->regmap_mutex);
+
 	/* Set PLL given bclk */
 	ret = _setup_pll(component, bclk);
 	if (ret < 0)
-		return ret;
+		goto err;
 
 	/* Set samples and slots sizes */
-	return _set_sam_size(component, substream->stream, samsize);
+	ret = _set_sam_size(component, substream->stream, samsize);
+err:
+	mutex_unlock(&priv->regmap_mutex);
+	return ret;
 }
 
-static int _set_protocol(struct snd_soc_dai *dai, unsigned int fmt)
+/* Doesn't actually write to registers */
+static int set_protocol(struct snd_soc_dai *dai, unsigned int fmt)
 {
 	struct snd_soc_component *component = dai->component;
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
@@ -896,7 +1022,7 @@ static int ivm6303_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 			__func__, fmt & SND_SOC_DAIFMT_CLOCK_MASK);
 		return -EINVAL;
 	}
-	ret= _set_protocol(dai, fmt);
+	ret= set_protocol(dai, fmt);
 	if (ret < 0)
 		return ret;
 	return 0;
@@ -957,17 +1083,18 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 	priv->slots = slots;
 	priv->slot_width = slot_width;
 
+	mutex_lock(&priv->regmap_mutex);
 	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(3),
 				  I_SLOT_SIZE_MASK << I_SLOT_SIZE_SHIFT, w);
 	if (stat < 0) {
 		dev_err(component->dev, "error writing input slot size\n");
-		return stat;
+		goto err;
 	}
 	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(4),
 				  O_SLOT_SIZE_MASK << O_SLOT_SIZE_SHIFT, w);
 	if (stat < 0) {
 		dev_err(component->dev, "error writing output slot size\n");
-		return stat;
+		goto err;
 	}
 	ch = 0;
 	while ((i = ffs(tx_mask))) {
@@ -978,7 +1105,7 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 				    i);
 		if (stat < 0) {
 			dev_err(component->dev, "error setting up tx slot\n");
-			return stat;
+			goto err;
 		}
 		tx_mask &= ~(1 << (i - 1));
 		ch++;
@@ -992,12 +1119,14 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 				    i);
 		if (stat < 0) {
 			dev_err(component->dev, "error setting up tx slot\n");
-			return stat;
+			goto err;
 		}
 		rx_mask &= ~(1 << (i - 1));
 		ch++;
 	}
-	return 0;
+err:
+	mutex_unlock(&priv->regmap_mutex);
+	return stat;
 }
 
 static int ivm6303_set_channel_map(struct snd_soc_dai *dai,
@@ -1015,6 +1144,7 @@ static int ivm6303_set_channel_map(struct snd_soc_dai *dai,
 		dev_err(component->dev, "Invalid number of tx channels");
 		return -EINVAL;
 	}
+	mutex_lock(&priv->regmap_mutex);
 	for (i = 0; i < tx_num; i++) {
 		v = tx_slot[i] + 1;
 		r = IVM6303_TDM_SETTINGS(0xb) + (i << 1);
@@ -1022,18 +1152,21 @@ static int ivm6303_set_channel_map(struct snd_soc_dai *dai,
 		if (stat < 0) {
 			dev_err(component->dev, "Error writing register %u\n",
 				r);
-			return stat;
+			goto err;
 		}
 	}
 	if (rx_num > 1) {
 		dev_err(component->dev, "Invalid number of rx channels");
-		return -EINVAL;
+		stat = -EINVAL;
+		goto err;
 	}
 	v = rx_slot[0] + 1;
 	r = IVM6303_TDM_SETTINGS(0x5);
 	stat = regmap_write(priv->regmap, r, v);
 	if (stat < 0)
 		dev_err(component->dev, "Error writing register %u\n", r);
+err:
+	mutex_unlock(&priv->regmap_mutex);
 	return stat;
 }
 
@@ -1055,6 +1188,7 @@ static int ivm6303_get_channel_map(struct snd_soc_dai *dai,
 	 * for instance the sequence 1,2,4 is __not__ allowed. You __must__
 	 * have 1,2,3
 	 */
+	mutex_lock(&priv->regmap_mutex);
 	for (ch = 0, *tx_num = 0; ch < 4; ch++) {
 		/*
 		 * Each channel can be assigned 2 slots, we just consider
@@ -1065,7 +1199,7 @@ static int ivm6303_get_channel_map(struct snd_soc_dai *dai,
 		if (stat < 0) {
 			dev_err(component->dev,
 				"Error reading register %u\n", r);
-			return stat;
+			goto err;
 		}
 		/* v is equal to <slsz>|<slot # for this channel + 1 */
 		v &= 0x1f;
@@ -1081,13 +1215,15 @@ static int ivm6303_get_channel_map(struct snd_soc_dai *dai,
 	if (stat < 0) {
 		dev_err(component->dev,
 			"Error reading register %u\n", r);
-		return stat;
+		goto err;
 	}
 	v &= 0x1f;
 	if (v) {
 		*rx_slot++ = v - 1;
 		(*rx_num)++;
 	}
+err:
+	mutex_unlock(&priv->regmap_mutex);
 	return stat;
 }
 
@@ -1108,14 +1244,18 @@ static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 {
 	struct snd_soc_component *component = dai->component;
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int ret;
 
 	if (stream != SNDRV_PCM_STREAM_PLAYBACK)
 		/* Ignore mute on capture */
 		return 0;
 
 	dev_dbg(component->dev, "%s(): mute = %d\n", __func__, mute);
-	return regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(5),
-				  SPK_MUTE, mute ? SPK_MUTE : 0);
+	mutex_lock(&priv->regmap_mutex);
+	ret = regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(5),
+				 SPK_MUTE, mute ? SPK_MUTE : 0);
+	mutex_unlock(&priv->regmap_mutex);
+	return ret;
 }
 
 const struct snd_soc_dai_ops ivm6303_i2s_dai_ops = {
@@ -1198,6 +1338,7 @@ static int ivm6303_probe(struct i2c_client *client)
 		ret = -ENOMEM;
 		goto end;
 	}
+	mutex_init(&priv->regmap_mutex);
 
 	priv->i2c_client = client;
 
