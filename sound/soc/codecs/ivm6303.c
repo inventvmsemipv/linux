@@ -232,18 +232,6 @@ static const struct snd_kcontrol_new playback_mode_control[] = {
 		       playback_mode_control_put),
 };
 
-int tdm_out_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
-{
-	pr_debug("%s, event %d, stream %s\n", __func__, e, w->sname);
-	return 0;
-}
-
-int i2s_out_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
-{
-	pr_debug("%s, event %d, stream %s\n", __func__, e, w->sname);
-	return 0;
-}
-
 int playback_mode_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
 			int e)
 {
@@ -293,18 +281,12 @@ static const struct snd_soc_dapm_widget ivm6303_dapm_widgets[] = {
 			   playback_mode_control, 1,
 			   playback_mode_event,
 			   SND_SOC_DAPM_PRE_PMU|SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_AIF_OUT_E("AIF CH1-2 I2S OUT", "I2S Capture", 0,
-			       SND_SOC_NOPM, 0, 0,
-			       i2s_out_event,
-			       SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_AIF_OUT_E("AIF CH1-2 TDM OUT", "TDM Capture", 0,
-			       SND_SOC_NOPM, 0, 0,
-			       tdm_out_event,
-			       SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_AIF_OUT_E("AIF CH3-4 TDM OUT", "TDM Capture", 0,
-			       SND_SOC_NOPM, 0, 0,
-			       tdm_out_event,
-			       SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_AIF_OUT("AIF CH1-2 I2S OUT", "I2S Capture", 0,
+			     IVM6303_ENABLES_SETTINGS(2), 0, 0),
+	SND_SOC_DAPM_AIF_OUT("AIF CH1-2 TDM OUT", "TDM Capture", 0,
+			     IVM6303_ENABLES_SETTINGS(2), 0, 0),
+	SND_SOC_DAPM_AIF_OUT("AIF CH3-4 TDM OUT", "TDM Capture", 0,
+			     IVM6303_ENABLES_SETTINGS(2), 0, 0),
 };
 
 static const struct snd_soc_dapm_route ivm6303_dapm_routes[] = {
