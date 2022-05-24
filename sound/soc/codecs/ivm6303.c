@@ -37,6 +37,8 @@
 #define IVM6303_ENABLES_SETTINGS(n)	(0x14 + (n))
 /* ENABLES_SETTINGS_1 */
 # define PLL_EN				BIT(3)
+/* ENABLES_SETTINGS_2 */
+# define TDM_EN				BIT(0)
 /* ENABLES_SETTINGS_5 */
 # define SPK_EN				BIT(0)
 # define SPK_MUTE			BIT(1)
@@ -230,18 +232,6 @@ static const struct snd_kcontrol_new playback_mode_control[] = {
 		       playback_mode_control_put),
 };
 
-int tdm_in_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
-{
-	pr_debug("%s, event %d, stream %s\n", __func__, e, w->sname);
-	return 0;
-}
-
-int i2s_in_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
-{
-	pr_debug("%s, event %d, stream %s\n", __func__, e, w->sname);
-	return 0;
-}
-
 int tdm_out_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
 {
 	pr_debug("%s, event %d, stream %s\n", __func__, e, w->sname);
@@ -294,15 +284,11 @@ static const struct snd_soc_dapm_widget ivm6303_dapm_widgets[] = {
 	/* Analog Output */
 	SND_SOC_DAPM_OUTPUT("SPK"),
 	/* TDM INPUT (Playback) */
-	SND_SOC_DAPM_AIF_IN_E("AIF TDM IN", "TDM Playback", 0,
-			      SND_SOC_NOPM, 0, 0,
-			      tdm_in_event,
-			      SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_AIF_IN("AIF TDM IN", "TDM Playback", 0,
+			    IVM6303_ENABLES_SETTINGS(2), 0, 0),
 	/* I2S INPUT (Playback) */
-	SND_SOC_DAPM_AIF_IN_E("AIF I2S IN", "I2S Playback", 0,
-			      SND_SOC_NOPM, 0, 0,
-			      i2s_in_event,
-			      SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_AIF_IN("AIF I2S IN", "I2S Playback", 0,
+			    IVM6303_ENABLES_SETTINGS(2), 0, 0),
 	SND_SOC_DAPM_PGA_E("CLASS-D", IVM6303_ENABLES_SETTINGS(5), 0, 0,
 			   playback_mode_control, 1,
 			   playback_mode_event,
