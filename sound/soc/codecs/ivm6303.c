@@ -1017,11 +1017,6 @@ static int set_protocol(struct snd_soc_dai *dai, unsigned int fmt)
 	priv->i2s = priv->delay = priv->inverted_fsync =
 		priv->fsync_edge = priv->inverted_bclk = 0;
 
-	if ((dai->id == IVM6303_I2S_DAI) &&
-	    ((fmt & SND_SOC_DAIFMT_FORMAT_MASK) != SND_SOC_DAIFMT_I2S)) {
-		dev_err(component->dev, "Non I2S format requested for I2S dai");
-		return -EINVAL;
-	}
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_IB_IF:
 		priv->inverted_bclk = 1;
@@ -1111,11 +1106,6 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 	unsigned int w, i, ch;
 	int stat;
 
-	if (dai->id != IVM6303_TDM_DAI) {
-		dev_err(component->dev,
-			"set_tdm_slot called for a non tdm dai");
-		return -ENOTSUPP;
-	}
 	if (!slots) {
 		/* Disable TDM, error for the moment */
 		dev_err(component->dev,
@@ -1331,9 +1321,28 @@ static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 	return ret;
 }
 
+static int ivm6303_i2s_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
+{
+	struct snd_soc_component *component = dai->component;
+	int ret;
+
+	/* Setup for mono playback and stereo capture (Vs/Is) */
+	ret = ivm6303_set_tdm_slot(dai, 0x3, 0x1, 2, 32);
+	if (ret < 0) {
+		dev_err(component->dev,
+			"Cannot setup slots for I2S dai operation");
+		return ret;
+	}
+	if ((fmt & SND_SOC_DAIFMT_FORMAT_MASK) != SND_SOC_DAIFMT_I2S) {
+		dev_err(component->dev, "Non I2S format requested for I2S dai");
+		return -EINVAL;
+	}
+	return ivm6303_set_fmt(dai, fmt);
+}
+
 const struct snd_soc_dai_ops ivm6303_i2s_dai_ops = {
 	.hw_params	= ivm6303_hw_params,
-	.set_fmt	= ivm6303_set_fmt,
+	.set_fmt	= ivm6303_i2s_set_fmt,
 	.trigger	= ivm6303_dai_trigger,
 	.mute_stream	= ivm6303_dai_mute,
 };
