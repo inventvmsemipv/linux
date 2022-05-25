@@ -99,7 +99,7 @@ static int configfs_sc_late_probe(struct snd_soc_card *card)
 	ret = snd_soc_dai_set_tdm_slot(asoc_rtd_to_cpu(rtd, 0), tdata->tx_mask,
 				       tdata->rx_mask, tdata->total_slots,
 				       tdata->slot_width);
-	if (ret < 0)
+	if (ret < 0 && ret != -ENOTSUPP)
 		return ret;
 	for (i = 0; i < rtd->dai_link->num_codecs; i++) {
 		tdata = &priv->tdm_data[i + 1];
@@ -107,7 +107,7 @@ static int configfs_sc_late_probe(struct snd_soc_card *card)
 					       tdata->tx_mask, tdata->rx_mask,
 					       tdata->total_slots,
 					       tdata->slot_width);
-		if (ret < 0)
+		if (ret < 0 && ret != -ENOTSUPP)
 			return ret;
 	}
 	return 0;
