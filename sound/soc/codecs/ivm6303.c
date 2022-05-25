@@ -183,6 +183,44 @@ static int _run_fw_section(struct snd_soc_component *component, int s)
 	return ret;
 }
 
+/*
+ * Assumes regmap lock taken
+ * Saves current status of bit IVM6303_ENABLES_SETTINGS(5).SPK_EN
+ * and sets it to 0
+ */
+static int _save_and_switch_speaker_off(struct snd_soc_component *component,
+					unsigned int *v)
+{
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int ret;
+
+	ret = regmap_read(priv->regmap, IVM6303_ENABLES_SETTINGS(5), v);
+	if (ret < 0) {
+		dev_err(component->dev, "error reading speaker status");
+		return ret;
+	}
+	ret = regmap_write(priv->regmap, IVM6303_ENABLES_SETTINGS(5),
+			   (*v) & ~SPK_EN);
+	if (ret < 0)
+		dev_err(component->dev, "error turning speaker off");
+	return ret;
+}
+
+/*
+ * Assumes regmap lock taken
+ * Restore IVM6303_ENABLES_SETTINGS(5) register
+ */
+static void _restore_enables_status(struct snd_soc_component *component,
+				    unsigned int v)
+{
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int stat;
+
+	stat = regmap_write(priv->regmap, IVM6303_ENABLES_SETTINGS(5), v);
+	if (stat < 0)
+		dev_err(component->dev, "error restoring enables status");
+}
+
 static int playback_mode_control_get(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
@@ -210,6 +248,8 @@ static int playback_mode_control_put(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_component *c = snd_soc_dapm_kcontrol_component(kcontrol);
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(c);
+	int ret;
+	unsigned int spkstat;
 
 	dev_dbg(c->dev, "%s called (%ld)\n", __func__,
 		ucontrol->value.integer.value[0]);
@@ -223,7 +263,13 @@ static int playback_mode_control_put(struct snd_kcontrol *kcontrol,
 	default:
 		return -EINVAL;
 	}
-	return 0;
+	mutex_lock(&priv->regmap_mutex);
+	ret = _save_and_switch_speaker_off(c, &spkstat);
+	if (!ret)
+		ret = _run_fw_section(c, priv->playback_mode_fw_section);
+	_restore_enables_status(c, spkstat);
+	mutex_unlock(&priv->regmap_mutex);
+	return ret;
 }
 
 static const struct snd_kcontrol_new playback_mode_control[] = {
