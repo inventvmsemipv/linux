@@ -121,6 +121,14 @@ static int configfs_sc_probe(struct platform_device *pdev)
 	struct configfs_sc_priv *priv;
 	struct configfs_sc_tdm_data *tdata;
 	struct asoc_configfs_soundcard *configfs_data;
+	struct snd_soc_codec_conf *codec_confs = NULL;
+	const char *stereo_prefixes[2] = {
+		"Left", "Right",
+	};
+	const char *multi_prefixes[8] = {
+		"Ch0", "Ch1", "Ch2", "Ch3", "Ch4", "Ch5", "Ch6", "Ch7",
+	};
+	const char **prefixes = NULL;
 	int i, ret;
 
 	dev_dbg(&pdev->dev, "%s entered\n", __func__);
@@ -174,11 +182,36 @@ static int configfs_sc_probe(struct platform_device *pdev)
 				    GFP_KERNEL);
 	if (!link->codecs)
 		return -ENOMEM;
+	if (link->num_codecs > 1) {
+		int sz;
+
+		if (link->num_codecs > ARRAY_SIZE(multi_prefixes)) {
+			dev_err(&pdev->dev, "too many codecs");
+			return -ENOMEM;
+		}
+		sz = link->num_codecs * sizeof(codec_confs[0]);
+		codec_confs = devm_kzalloc(&pdev->dev, sz, GFP_KERNEL);
+		if (link->num_codecs == 2)
+			prefixes = stereo_prefixes;
+		else
+			prefixes = multi_prefixes;
+		card->codec_conf = codec_confs;
+		card->num_configs = link->num_codecs;
+	}
 	for (i = 0; i < link->num_codecs; i++) {
 		struct asoc_configfs_dai_link *c = &configfs_data->codecs[i];
 
 		setup_name_ofnode(&link->codecs[i], c);
 		link->codecs[i].dai_name = c->component_dai_name;
+		if (codec_confs) {
+			if (link->codecs[i].name)
+				codec_confs[i].dlc.name =
+					link->codecs[i].name;
+			else
+				codec_confs[i].dlc.of_node =
+					link->codecs[i].of_node;
+			codec_confs[i].name_prefix = prefixes[i];
+		}
 	}
 
 	link->num_platforms = 1;
