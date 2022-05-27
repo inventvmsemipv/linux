@@ -594,11 +594,28 @@ static void ivm6303_component_remove(struct snd_soc_component *component)
 	cancel_delayed_work_sync(&priv->tdm_apply_work);
 }
 
+static struct snd_kcontrol_new ivm6303_ctrls[] = {
+	SOC_SINGLE("Data1: enable T", IVM6303_TDM_SETTINGS(0x15), 0, 1, 0),
+	SOC_SINGLE("Data1: enable Vbat", IVM6303_TDM_SETTINGS(0x15), 1, 1, 0),
+	SOC_SINGLE("Data1: enable Vbatout",
+		   IVM6303_TDM_SETTINGS(0x15), 2, 1, 0),
+	SOC_SINGLE("Data1: enable Vboost", IVM6303_TDM_SETTINGS(0x15), 3, 1, 0),
+	SOC_SINGLE("Data1: enable Vol", IVM6303_TDM_SETTINGS(0x15), 4, 1, 0),
+	SOC_SINGLE("Data1: enable Hdrc Gain", IVM6303_TDM_SETTINGS(0x15), 5, 1,
+		   0),
+	SOC_SINGLE("Data1: enable Single pole", IVM6303_TDM_SETTINGS(0x15), 6,
+		   1, 0),
+	SOC_SINGLE("Data1: enable Vbatout Bstlev",
+		   IVM6303_TDM_SETTINGS(0x15), 7, 1, 0),
+	SOC_SINGLE("Data1: enable Ldrc Gain", IVM6303_TDM_SETTINGS(0x14), 0,
+		   1, 0),
+};
+
 static struct snd_soc_component_driver soc_component_dev_ivm6303 = {
 	.probe		= ivm6303_component_probe,
 	.remove		= ivm6303_component_remove,
-	.controls	= NULL,
-	.num_controls	= 0,
+	.controls	= ivm6303_ctrls,
+	.num_controls	= ARRAY_SIZE(ivm6303_ctrls),
 	.dapm_widgets	= ivm6303_dapm_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(ivm6303_dapm_widgets),
 	.dapm_routes	= ivm6303_dapm_routes,
