@@ -767,7 +767,7 @@ static int _set_sam_size(struct snd_soc_component *component,
 		/* TDM_CHxO_DL */
 		for (i = 0; i < 4; i++) {
 			ret = regmap_update_bits(priv->regmap,
-						 IVM6303_TDM_SETTINGS(10 + 2*i),
+						 IVM6303_TDM_SETTINGS(11 + 2*i),
 						 O_DL_MASK,
 						 samsize << O_DL_SHIFT);
 			if (ret < 0)
