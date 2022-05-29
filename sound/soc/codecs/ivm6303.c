@@ -626,6 +626,47 @@ static void ivm6303_component_remove(struct snd_soc_component *component)
 	cancel_delayed_work_sync(&priv->tdm_apply_work);
 }
 
+static const char *ch3_output_mux_texts[] = {
+	"Data1",
+	"eq2_datao",
+	"Vbatout + bst_lvl",
+};
+
+static unsigned int ch3_output_mux_values[] = {
+	0, 1, 2,
+};
+
+static SOC_VALUE_ENUM_SINGLE_DECL(ch3_output_mux_enum,
+				  IVM6303_TDM_SETTINGS(0x13),
+				  /* shift */
+				  4,
+				  /* mask */
+				  0x3,
+				  ch3_output_mux_texts,
+				  ch3_output_mux_values);
+
+static const struct snd_kcontrol_new ch3_output_mux =
+	SOC_DAPM_ENUM("ch3 output mux", ch3_output_mux_enum);
+
+static const char *ch4_output_mux_texts[] = {
+	"Data2",
+	"et_datao",
+	"Vol + DRCg",
+};
+
+static unsigned int ch4_output_mux_values[] = {
+	0, 1, 2,
+};
+
+static SOC_VALUE_ENUM_SINGLE_DECL(ch4_output_mux_enum,
+				  IVM6303_TDM_SETTINGS(0x13),
+				  /* shift */
+				  6,
+				  /* mask */
+				  0x3,
+				  ch4_output_mux_texts,
+				  ch4_output_mux_values);
+
 static struct snd_kcontrol_new ivm6303_ctrls[] = {
 	SOC_SINGLE("Data1: enable T", IVM6303_TDM_SETTINGS(0x15), 0, 1, 0),
 	SOC_SINGLE("Data1: enable Vbat", IVM6303_TDM_SETTINGS(0x15), 1, 1, 0),
@@ -641,6 +682,22 @@ static struct snd_kcontrol_new ivm6303_ctrls[] = {
 		   IVM6303_TDM_SETTINGS(0x15), 7, 1, 0),
 	SOC_SINGLE("Data1: enable Ldrc Gain", IVM6303_TDM_SETTINGS(0x14), 0,
 		   1, 0),
+	SOC_SINGLE("Data2: enable T", IVM6303_TDM_SETTINGS(0x17), 0, 1, 0),
+	SOC_SINGLE("Data2: enable Vbat", IVM6303_TDM_SETTINGS(0x17), 1, 1, 0),
+	SOC_SINGLE("Data2: enable Vbatout",
+		   IVM6303_TDM_SETTINGS(0x17), 2, 1, 0),
+	SOC_SINGLE("Data2: enable Vboost", IVM6303_TDM_SETTINGS(0x17), 3, 1, 0),
+	SOC_SINGLE("Data2: enable Vol", IVM6303_TDM_SETTINGS(0x17), 4, 1, 0),
+	SOC_SINGLE("Data2: enable Hdrc Gain", IVM6303_TDM_SETTINGS(0x17), 5, 1,
+		   0),
+	SOC_SINGLE("Data2: enable Single pole", IVM6303_TDM_SETTINGS(0x17), 6,
+		   1, 0),
+	SOC_SINGLE("Data2: enable Vbatout Bstlev",
+		   IVM6303_TDM_SETTINGS(0x17), 7, 1, 0),
+	SOC_SINGLE("Data2: enable Ldrc Gain", IVM6303_TDM_SETTINGS(0x16), 0,
+		   1, 0),
+	SOC_ENUM("ch3 output mux", ch3_output_mux_enum),
+	SOC_ENUM("ch4 output mux", ch4_output_mux_enum),
 };
 
 static struct snd_soc_component_driver soc_component_dev_ivm6303 = {
