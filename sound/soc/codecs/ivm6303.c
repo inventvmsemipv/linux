@@ -648,8 +648,6 @@ static struct snd_soc_component_driver soc_component_dev_ivm6303 = {
 	.remove		= ivm6303_component_remove,
 	.read		= ivm6303_component_read,
 	.write		= ivm6303_component_write,
-	.controls	= ivm6303_ctrls,
-	.num_controls	= ARRAY_SIZE(ivm6303_ctrls),
 	.dapm_widgets	= ivm6303_dapm_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(ivm6303_dapm_widgets),
 	.dapm_routes	= ivm6303_dapm_routes,
@@ -1408,6 +1406,12 @@ const struct snd_soc_dai_ops ivm6303_tdm_dai_ops = {
 	.mute_stream	= ivm6303_dai_mute,
 };
 
+static int ivm6303_tdm_dai_probe(struct snd_soc_dai *dai)
+{
+	return snd_soc_add_component_controls(dai->component, ivm6303_ctrls,
+					      ARRAY_SIZE(ivm6303_ctrls));
+}
+
 static struct snd_soc_dai_driver ivm6303_dais[] = {
 	{
 		.name = "ivm6303-i2s",
@@ -1432,6 +1436,7 @@ static struct snd_soc_dai_driver ivm6303_dais[] = {
 	{
 		.name = "ivm6303-tdm",
 		.id = IVM6303_TDM_DAI,
+		.probe = ivm6303_tdm_dai_probe,
 		.playback = {
 			.stream_name = "TDM Playback",
 			.channels_min = 1,
