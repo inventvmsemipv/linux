@@ -8,7 +8,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
-
+#define DEBUG 1
 #include <linux/module.h>
 #include <linux/i2c.h>
 #include <linux/delay.h>
@@ -545,6 +545,7 @@ static void tdm_apply_handler(struct work_struct * work)
 	int ret;
 	unsigned int v = 0;
 
+	pr_debug("%s called\n", __func__);
 	mutex_lock(&priv->regmap_mutex);
 	ret = regmap_update_bits(priv->regmap, IVM6303_TDM_APPLY_CONF,
 				 DO_APPLY_CONF, DO_APPLY_CONF);
@@ -766,6 +767,10 @@ static int _set_sam_size(struct snd_soc_component *component,
 	case SNDRV_PCM_STREAM_CAPTURE:
 		/* TDM_CHxO_DL */
 		for (i = 0; i < 4; i++) {
+			dev_dbg(component->dev,
+				"%s: writing reg %2x, mask = %2x, val = %2x",
+				__func__, IVM6303_TDM_SETTINGS(11 + 2*i),
+				O_DL_MASK, samsize << O_DL_SHIFT);
 			ret = regmap_update_bits(priv->regmap,
 						 IVM6303_TDM_SETTINGS(11 + 2*i),
 						 O_DL_MASK,
@@ -777,6 +782,10 @@ static int _set_sam_size(struct snd_soc_component *component,
 	case SNDRV_PCM_STREAM_PLAYBACK:
 		for (i = 0; i < 5; i++) {
 			/* TDM_CHxI_DL */
+			dev_dbg(component->dev,
+				"%s: writing reg %2x, mask = %2x, val = %2x",
+				__func__, IVM6303_TDM_SETTINGS(5 + i),
+				I_DL_MASK, samsize << I_DL_SHIFT);
 			ret = regmap_update_bits(priv->regmap,
 						 IVM6303_TDM_SETTINGS(5 + i),
 						 I_DL_MASK,
@@ -1253,12 +1262,16 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 	priv->slot_width = slot_width;
 
 	mutex_lock(&priv->regmap_mutex);
+	dev_dbg(component->dev, "%s: writing reg %2x, mask %2x, val %2x",
+		__func__, IVM6303_TDM_SETTINGS(3), I_SLOT_SIZE_MASK, w);
 	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(3),
 				  I_SLOT_SIZE_MASK, w);
 	if (stat < 0) {
 		dev_err(component->dev, "error writing input slot size\n");
 		goto err;
 	}
+	dev_dbg(component->dev, "%s: writing reg %2x, mask %2x, val %2x",
+		__func__, IVM6303_TDM_SETTINGS(4), O_SLOT_SIZE_MASK, w);
 	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(4),
 				  O_SLOT_SIZE_MASK, w);
 	if (stat < 0) {
@@ -1269,6 +1282,8 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 	while ((i = ffs(tx_mask))) {
 		/* Tx slot i is active and assigned to channel ch */
 		/* i ranges from 1 to 31, 0 means not assigned */
+		dev_dbg(component->dev, "%s: writing reg %2x, val %2x",
+			__func__, IVM6303_TDM_SETTINGS(0xb) + (ch << 1), i);
 		stat = regmap_write(priv->regmap,
 				    IVM6303_TDM_SETTINGS(0xb) + (ch << 1),
 				    i);
@@ -1283,6 +1298,8 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 	while ((i = ffs(rx_mask))) {
 		/* Rx slot i is active and assigned to channel ch */
 		/* i ranges from 1 to 31, 0 means not assigned */
+		dev_dbg(component->dev, "%s: writing reg %2x, val %2x",
+			__func__, IVM6303_TDM_SETTINGS(0x5) + (ch << 1), i);
 		stat = regmap_write(priv->regmap,
 				    IVM6303_TDM_SETTINGS(0x5) + (ch << 1),
 				    i);
@@ -1433,6 +1450,7 @@ static int ivm6303_i2s_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	int ret;
 
 	/* Setup for mono playback and stereo capture (Vs/Is) */
+	dev_dbg(component->dev, "%s invoked\n", __func__);
 	ret = ivm6303_set_tdm_slot(dai, 0x3, 0x1, 2, 32);
 	if (ret < 0) {
 		dev_err(component->dev,
