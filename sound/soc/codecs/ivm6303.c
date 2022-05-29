@@ -1254,13 +1254,13 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 
 	mutex_lock(&priv->regmap_mutex);
 	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(3),
-				  I_SLOT_SIZE_MASK << I_SLOT_SIZE_SHIFT, w);
+				  I_SLOT_SIZE_MASK, w);
 	if (stat < 0) {
 		dev_err(component->dev, "error writing input slot size\n");
 		goto err;
 	}
 	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(4),
-				  O_SLOT_SIZE_MASK << O_SLOT_SIZE_SHIFT, w);
+				  O_SLOT_SIZE_MASK, w);
 	if (stat < 0) {
 		dev_err(component->dev, "error writing output slot size\n");
 		goto err;
