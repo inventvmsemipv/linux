@@ -564,6 +564,39 @@ static void tdm_apply_handler(struct work_struct * work)
 		pr_err("%s: error setting tdm config\n", __func__);
 }
 
+static unsigned int ivm6303_component_read(struct snd_soc_component *component,
+					   unsigned int reg)
+{
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int stat;
+	unsigned int v = 0;
+
+	dev_dbg(component->dev, "%s, reading %u", __func__, reg);
+	mutex_lock(&priv->regmap_mutex);
+	stat = regmap_read(priv->regmap, reg, &v);
+	mutex_unlock(&priv->regmap_mutex);
+	if (stat < 0)
+		dev_err(component->dev,
+			"%s, error in regmap_read (%d)\n", __func__, stat);
+	return v;
+}
+
+static int ivm6303_component_write(struct snd_soc_component *component,
+				   unsigned int reg, unsigned int val)
+{
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int ret;
+
+	dev_dbg(component->dev, "%s, writing to reg %u", __func__, reg);
+	mutex_lock(&priv->regmap_mutex);
+	ret = regmap_write(priv->regmap, reg, val);
+	mutex_unlock(&priv->regmap_mutex);
+	if (ret < 0)
+		dev_err(component->dev,
+			"%s, error in regmap_write (%d)\n", __func__, ret);
+	return ret;
+}
+
 static int ivm6303_component_probe(struct snd_soc_component *component)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
@@ -579,7 +612,6 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 	if (ret < 0)
 		return ret;
 	INIT_DELAYED_WORK(&priv->tdm_apply_work, tdm_apply_handler);
-	snd_soc_component_init_regmap(component, priv->regmap);
 	mutex_lock(&priv->regmap_mutex);
 	ret = _run_fw_section(component, IVM6303_PROBE_WRITES);
 	mutex_unlock(&priv->regmap_mutex);
@@ -614,6 +646,8 @@ static struct snd_kcontrol_new ivm6303_ctrls[] = {
 static struct snd_soc_component_driver soc_component_dev_ivm6303 = {
 	.probe		= ivm6303_component_probe,
 	.remove		= ivm6303_component_remove,
+	.read		= ivm6303_component_read,
+	.write		= ivm6303_component_write,
 	.controls	= ivm6303_ctrls,
 	.num_controls	= ARRAY_SIZE(ivm6303_ctrls),
 	.dapm_widgets	= ivm6303_dapm_widgets,
