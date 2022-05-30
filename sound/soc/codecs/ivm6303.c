@@ -273,7 +273,7 @@ static int playback_mode_control_put(struct snd_kcontrol *kcontrol,
 }
 
 static const struct snd_kcontrol_new playback_mode_control[] = {
-	SOC_SINGLE_EXT("Playback mode",
+	SOC_SINGLE_EXT("Speaker mode",
 		       0, 0, 1, 0, playback_mode_control_get,
 		       playback_mode_control_put),
 };
