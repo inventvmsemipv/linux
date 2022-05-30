@@ -254,6 +254,30 @@ static ssize_t asoc_card_format_store(struct config_item *item,
 	return -EINVAL;
 }
 
+static ssize_t asoc_card_invert_fsyn_store(struct config_item *item,
+					   const char *page, size_t len)
+{
+	struct asoc_configfs_soundcard *sc =
+		to_asoc_configfs_soundcard(to_config_group(item));
+	int ret;
+
+	pr_debug("%s: written %s\n", __func__, page);
+	ret = kstrtoul(page, 10, &sc->invert_fsyn);
+	return ret < 0 ? ret : len;
+}
+
+static ssize_t asoc_card_invert_bclk_store(struct config_item *item,
+					   const char *page, size_t len)
+{
+	struct asoc_configfs_soundcard *sc =
+		to_asoc_configfs_soundcard(to_config_group(item));
+	int ret;
+
+	pr_debug("%s: written %s\n", __func__, page);
+	ret = kstrtoul(page, 10, &sc->invert_bclk);
+	return ret < 0 ? ret : len;
+}
+
 static ssize_t _set_bitclock_master(const char *page, size_t len,
 				    int *what)
 {
@@ -321,6 +345,8 @@ static ssize_t asoc_card_total_slots_store(struct config_item *item,
 }
 
 CONFIGFS_ATTR_WO(asoc_card_, format);
+CONFIGFS_ATTR_WO(asoc_card_, invert_fsyn);
+CONFIGFS_ATTR_WO(asoc_card_, invert_bclk);
 CONFIGFS_ATTR_WO(asoc_card_, bitclock_master);
 CONFIGFS_ATTR_WO(asoc_card_, frameclock_master);
 CONFIGFS_ATTR_WO(asoc_card_, command);
@@ -328,6 +354,8 @@ CONFIGFS_ATTR_WO(asoc_card_, total_slots);
 
 static struct configfs_attribute *soundcard_root_attrs[] = {
 	&asoc_card_attr_format,
+	&asoc_card_attr_invert_fsyn,
+	&asoc_card_attr_invert_bclk,
 	&asoc_card_attr_bitclock_master,
 	&asoc_card_attr_frameclock_master,
 	&asoc_card_attr_command,

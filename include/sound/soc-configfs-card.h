@@ -29,6 +29,8 @@ struct asoc_configfs_soundcard {
 	const char *name;
 	struct config_group group;
 	int format;
+	unsigned long invert_fsyn;
+	unsigned long invert_bclk;
 	int cpu_bitclock_master;
 	int cpu_frameclock_master;
 	int ncpus;
