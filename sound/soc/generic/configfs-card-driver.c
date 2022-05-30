@@ -162,6 +162,12 @@ static int configfs_sc_probe(struct platform_device *pdev)
 		link->dai_fmt |= SND_SOC_DAIFMT_CBM_CFS;
 	else
 		link->dai_fmt |= SND_SOC_DAIFMT_CBS_CFS;
+	if (configfs_data->invert_fsyn && configfs_data->invert_bclk)
+		link->dai_fmt |= SND_SOC_DAIFMT_IB_IF;
+	if (configfs_data->invert_fsyn && !configfs_data->invert_bclk)
+		link->dai_fmt |= SND_SOC_DAIFMT_NB_IF;
+	if (!configfs_data->invert_fsyn && configfs_data->invert_bclk)
+		link->dai_fmt |= SND_SOC_DAIFMT_IB_NF;
 
 	link->name = "configurable-link";
 	link->stream_name = link->name;
