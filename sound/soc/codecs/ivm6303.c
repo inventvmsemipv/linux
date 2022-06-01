@@ -419,16 +419,19 @@ static int alloc_fw_section(struct snd_soc_component *component,
 		return -EINVAL;
 	}
 	s = &priv->fw_sections[t];
-	if (s->regs) {
+	if (s->nregs) {
 		dev_err(component->dev, "section has already been filled");
 		return -EBUSY;
 	}
-	s->regs = devm_kzalloc(component->dev,
-			       IVM6303_SECTION_MAX_REGISTERS * sizeof(*s),
-			       GFP_KERNEL);
 	if (!s->regs) {
-		dev_err(component->dev, "error allocating fw section");
-		return -ENOMEM;
+		s->regs = devm_kzalloc(component->dev,
+				       IVM6303_SECTION_MAX_REGISTERS *
+				       sizeof(*s),
+				       GFP_KERNEL);
+		if (!s->regs) {
+			dev_err(component->dev, "error allocating fw section");
+			return -ENOMEM;
+		}
 	}
 	s->nregs = 0;
 	return 0;
@@ -438,16 +441,10 @@ static void free_fw_section(struct snd_soc_component *component,
 			    enum ivm6303_section_type t)
 {
 	struct ivm6303_fw_section *s;
-	struct ivm6303_register *tmp;
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 
 	s = &priv->fw_sections[t];
-	tmp = s->regs;
-	/* Lock needed ? */
 	s->nregs = 0;
-	s->regs = NULL;
-	barrier();
-	devm_kfree(component->dev, tmp);
 }
 
 static int load_fw(struct snd_soc_component *component)
