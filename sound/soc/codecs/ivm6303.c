@@ -149,12 +149,36 @@ struct ivm6303_priv {
 /*
  * Assumes regmap mutex taken
  */
+static int __run_fw_section(struct ivm6303_priv *priv,
+			    struct ivm6303_fw_section *section)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	struct ivm6303_register *r;
+	int i, ret = 0;
+
+	for (i = 0; i < section->nregs; i++) {
+		if (i >= IVM6303_SECTION_MAX_REGISTERS) {
+			dev_err(dev, "%s, too many registers\n", __func__);
+			ret = -ENOMEM;
+			break;
+		}
+		r = &section->regs[i];
+		ret = regmap_write(priv->regmap, r->addr, r->val);
+		if (ret < 0) {
+			dev_err(dev, "error writing to register %u", r->addr);
+			break;
+		}
+	}
+	return ret;
+}
+
+/*
+ * Assumes regmap mutex taken
+ */
 static int _run_fw_section(struct snd_soc_component *component, int s)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 	struct ivm6303_fw_section *section;
-	struct ivm6303_register *r;
-	int i, ret = 0;
 
 	dev_dbg(component->dev, "running fw section %d\n", s);
 	if (s < IVM6303_PROBE_WRITES || s >= IVM6303_N_SECTIONS) {
@@ -164,24 +188,9 @@ static int _run_fw_section(struct snd_soc_component *component, int s)
 	section = &priv->fw_sections[s];
 	if (!section->regs) {
 		dev_dbg(component->dev, "trying to run empty section %d", s);
-		return ret;
+		return 0;
 	}
-	for (i = 0; i < section->nregs; i++) {
-		if (i >= IVM6303_SECTION_MAX_REGISTERS) {
-			dev_err(component->dev, "%s, too many registers\n",
-				__func__);
-			ret = -ENOMEM;
-			break;
-		}
-		r = &section->regs[i];
-		ret = regmap_write(priv->regmap, r->addr, r->val);
-		if (ret < 0) {
-			dev_err(component->dev, "error writing to register %u",
-				r->addr);
-			break;
-		}
-	}
-	return ret;
+	return __run_fw_section(priv, section);
 }
 
 /*
