@@ -127,6 +127,7 @@ struct ivm6303_fw_section {
 };
 
 struct ivm6303_priv {
+	struct workqueue_struct	*wq;
 	struct delayed_work	tdm_apply_work;
 	struct i2c_client	*i2c_client;
 	struct regmap		*regmap;
@@ -609,6 +610,11 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 	ret = load_fw(component);
 	if (ret < 0)
 		return ret;
+	priv->wq = create_singlethread_workqueue("ivm6303-wq");
+	if (!priv->wq) {
+		unload_fw(component);
+		return -ENOMEM;
+	}
 	INIT_DELAYED_WORK(&priv->tdm_apply_work, tdm_apply_handler);
 	mutex_lock(&priv->regmap_mutex);
 	ret = _run_fw_section(component, IVM6303_PROBE_WRITES);
@@ -620,8 +626,9 @@ static void ivm6303_component_remove(struct snd_soc_component *component)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 
-	unload_fw(component);
 	cancel_delayed_work_sync(&priv->tdm_apply_work);
+	flush_workqueue(priv->wq);
+	unload_fw(component);
 }
 
 static const char *ch3_output_mux_texts[] = {
@@ -1418,7 +1425,8 @@ static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 
 	if (cmd == SNDRV_PCM_TRIGGER_START) {
 		dev_dbg(component->dev, "%s, start trigger cmd\n", __func__);
-		return schedule_delayed_work(&priv->tdm_apply_work, HZ/100);
+		return queue_delayed_work(priv->wq, &priv->tdm_apply_work,
+					  HZ/100);
 	}
 	return 0;
 }
