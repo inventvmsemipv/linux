@@ -19,7 +19,9 @@
 #include <linux/clk.h>
 #include <linux/input.h>
 #include <linux/firmware.h>
+#include <linux/atomic.h>
 #include <linux/workqueue.h>
+#include <linux/completion.h>
 #include <sound/soc.h>
 #include <sound/tlv.h>
 #include <sound/asound.h>
@@ -101,6 +103,7 @@ enum ivm_tdm_size {
 };
 
 enum ivm6303_section_type {
+	IVM6303_NO_SECTION = 0,
 	IVM6303_PROBE_WRITES = 1,
 	IVM6303_PRE_PMU_WRITES,
 	IVM6303_POST_PMD_WRITES,
@@ -122,6 +125,7 @@ struct ivm6303_register {
 #define IVM6303_SECTION_MAX_REGISTERS 512
 
 struct ivm6303_fw_section {
+	int can_be_aborted;
 	struct ivm6303_register *regs;
 	int nregs;
 };
@@ -129,6 +133,8 @@ struct ivm6303_fw_section {
 struct ivm6303_priv {
 	struct workqueue_struct	*wq;
 	struct delayed_work	tdm_apply_work;
+	struct work_struct	fw_exec_work;
+	struct completion	fw_section_completion;
 	struct i2c_client	*i2c_client;
 	struct regmap		*regmap;
 	const struct firmware	*fw;
@@ -144,13 +150,14 @@ struct ivm6303_priv {
 	int			inverted_bclk;
 	enum ivm6303_section_type  playback_mode_fw_section;
 	struct ivm6303_fw_section fw_sections[IVM6303_N_SECTIONS];
+	atomic_t		running_section;
 };
 
 /*
  * Assumes regmap mutex taken
  */
-static int __run_fw_section(struct ivm6303_priv *priv,
-			    struct ivm6303_fw_section *section)
+static int _run_fw_section(struct ivm6303_priv *priv,
+			   struct ivm6303_fw_section *section)
 {
 	struct device *dev = &priv->i2c_client->dev;
 	struct ivm6303_register *r;
@@ -175,22 +182,70 @@ static int __run_fw_section(struct ivm6303_priv *priv,
 /*
  * Assumes regmap mutex taken
  */
-static int _run_fw_section(struct snd_soc_component *component, int s)
+static void fw_exec_handler(struct work_struct *work)
+{
+	struct ivm6303_priv *priv = container_of(work, struct ivm6303_priv,
+						 fw_exec_work);
+	int s = atomic_read(&priv->running_section);
+	struct device *dev = &priv->i2c_client->dev;
+	struct ivm6303_fw_section *section;
+
+	if (s < 0) {
+		dev_dbg(dev, "%s: section index is invalid\n", __func__);
+		goto end;
+	}
+	section = &priv->fw_sections[s];
+	if (!section->regs) {
+		dev_dbg(dev, "trying to run empty section %d", s);
+		goto end;
+	}
+	mutex_lock(&priv->regmap_mutex);
+	_run_fw_section(priv, section);
+	mutex_unlock(&priv->regmap_mutex);
+end:
+	complete(&priv->fw_section_completion);
+}
+
+static int run_fw_section(struct snd_soc_component *component, int s)
+{
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+
+	if (atomic_cmpxchg(&priv->running_section, IVM6303_NO_SECTION, s)) {
+		struct ivm6303_fw_section *section = &priv->fw_sections[s];
+
+		if (section->can_be_aborted)
+			cancel_work_sync(&priv->fw_exec_work);
+		else
+			wait_for_completion(&priv->fw_section_completion);
+		atomic_set(&priv->running_section, s);
+	}
+	reinit_completion(&priv->fw_section_completion);
+	/* Start */
+	return queue_work(priv->wq, &priv->fw_exec_work);
+}
+
+/* Assumes regmap lock tocken */
+static int _run_fw_section_sync(struct snd_soc_component *component, int s)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 	struct ivm6303_fw_section *section;
 
-	dev_dbg(component->dev, "running fw section %d\n", s);
-	if (s < IVM6303_PROBE_WRITES || s >= IVM6303_N_SECTIONS) {
-		dev_err(component->dev, "trying to run invalid section %d", s);
+	if (s < 0 || s >= IVM6303_N_SECTIONS)
 		return -EINVAL;
-	}
 	section = &priv->fw_sections[s];
-	if (!section->regs) {
-		dev_dbg(component->dev, "trying to run empty section %d", s);
-		return 0;
-	}
-	return __run_fw_section(priv, section);
+	return _run_fw_section(priv, section);
+}
+
+/* Runs a firmware section synchronously */
+static int run_fw_section_sync(struct snd_soc_component *component, int s)
+{
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int ret;
+
+	mutex_lock(&priv->regmap_mutex);
+	ret = _run_fw_section_sync(component, s);
+	mutex_unlock(&priv->regmap_mutex);
+	return ret;
 }
 
 /*
@@ -273,11 +328,14 @@ static int playback_mode_control_put(struct snd_kcontrol *kcontrol,
 	default:
 		return -EINVAL;
 	}
+	/* We have to turn off the output before mode changing */
 	mutex_lock(&priv->regmap_mutex);
 	ret = _save_and_switch_speaker_off(c, &spkstat);
-	if (!ret)
-		ret = _run_fw_section(c, priv->playback_mode_fw_section);
+	if (ret)
+		goto err;
+	ret = _run_fw_section_sync(c, priv->playback_mode_fw_section);
 	_restore_enables_status(c, spkstat);
+err:
 	mutex_unlock(&priv->regmap_mutex);
 	return ret;
 }
@@ -298,16 +356,15 @@ int playback_mode_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
 
 	pr_debug("%s: event %d, stream %s\n", __func__, e, w->sname);
 
-	mutex_lock(&priv->regmap_mutex);
 	switch(e) {
 	case SND_SOC_DAPM_PRE_PMU:
 		/* Run playback mode (speaker or receiver) fw section ... */
-		ret = _run_fw_section(component,
+		ret = run_fw_section(component,
 				      priv->playback_mode_fw_section);
 		if (ret < 0)
 			break;
 		/* And finally the PRE_PMU section */
-		ret = _run_fw_section(component, IVM6303_PRE_PMU_WRITES);
+		ret = run_fw_section(component, IVM6303_PRE_PMU_WRITES);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		break;
@@ -315,7 +372,6 @@ int playback_mode_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
 		dev_err(component->dev, "%s: unexpected event %d\n",
 			__func__, e);
 	}
-	mutex_unlock(&priv->regmap_mutex);
 	if (ret < 0)
 		dev_err(component->dev, "%s: error in event handling",
 			__func__);
@@ -625,9 +681,8 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 		return -ENOMEM;
 	}
 	INIT_DELAYED_WORK(&priv->tdm_apply_work, tdm_apply_handler);
-	mutex_lock(&priv->regmap_mutex);
-	ret = _run_fw_section(component, IVM6303_PROBE_WRITES);
-	mutex_unlock(&priv->regmap_mutex);
+	INIT_WORK(&priv->fw_exec_work, fw_exec_handler);
+	ret = run_fw_section_sync(component, IVM6303_PROBE_WRITES);
 	return ret;
 }
 
@@ -1575,6 +1630,7 @@ static int ivm6303_probe(struct i2c_client *client)
 		dev_err(&client->dev, "regmap init failed\n");
 	}
 	priv->playback_mode_fw_section = IVM6303_SPEAKER_MODE;
+	init_completion(&priv->fw_section_completion);
 
 	i2c_set_clientdata(client, priv);
 	ret = devm_snd_soc_register_component(&client->dev,
