@@ -666,6 +666,28 @@ static int ivm6303_component_write(struct snd_soc_component *component,
 	return ret;
 }
 
+static int ivm6303_set_bias_level(struct snd_soc_component *component,
+				  enum snd_soc_bias_level level)
+{
+	const enum snd_soc_bias_level prev_level =
+		snd_soc_component_get_bias_level(component);
+
+	switch(level) {
+	case SND_SOC_BIAS_ON:
+	case SND_SOC_BIAS_PREPARE:
+		break;
+	case SND_SOC_BIAS_STANDBY:
+		if (prev_level == SND_SOC_BIAS_OFF)
+			run_fw_section(component, IVM6303_BIAS_OFF_TO_STANDBY);
+		break;
+	case SND_SOC_BIAS_OFF:
+		if (prev_level == SND_SOC_BIAS_STANDBY)
+			run_fw_section(component, IVM6303_BIAS_STANDBY_TO_OFF);
+		break;
+	}
+	return 0;
+}
+
 static int ivm6303_component_probe(struct snd_soc_component *component)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
@@ -776,6 +798,7 @@ static struct snd_kcontrol_new ivm6303_ctrls[] = {
 
 static struct snd_soc_component_driver soc_component_dev_ivm6303 = {
 	.probe		= ivm6303_component_probe,
+	.set_bias_level = ivm6303_set_bias_level,
 	.remove		= ivm6303_component_remove,
 	.read		= ivm6303_component_read,
 	.write		= ivm6303_component_write,
