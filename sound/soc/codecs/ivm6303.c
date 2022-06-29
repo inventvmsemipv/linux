@@ -123,6 +123,8 @@ struct ivm6303_platform_data {
 struct ivm6303_register {
 	u16 addr;
 	u16 val;
+	/* Delay after register write in usecs */
+	unsigned int delay_us;
 };
 
 #define IVM6303_SECTION_MAX_REGISTERS 512
@@ -130,7 +132,7 @@ struct ivm6303_register {
 struct ivm6303_fw_section {
 	int can_be_aborted;
 	struct ivm6303_register *regs;
-	int nregs;
+	int nsteps;
 };
 
 struct ivm6303_priv {
@@ -166,7 +168,7 @@ static int _run_fw_section(struct ivm6303_priv *priv,
 	struct ivm6303_register *r;
 	int i, ret = 0;
 
-	for (i = 0; i < section->nregs; i++) {
+	for (i = 0; i < section->nsteps; i++) {
 		if (i >= IVM6303_SECTION_MAX_REGISTERS) {
 			dev_err(dev, "%s, too many registers\n", __func__);
 			ret = -ENOMEM;
@@ -177,6 +179,11 @@ static int _run_fw_section(struct ivm6303_priv *priv,
 		if (ret < 0) {
 			dev_err(dev, "error writing to register %u", r->addr);
 			break;
+		}
+		if (r->delay_us) {
+			if (r->delay_us > 1000)
+				mdelay(r->delay_us / 1000);
+			udelay(r->delay_us % 1000);
 		}
 	}
 	return ret;
@@ -465,6 +472,16 @@ static inline int is_new_section(u16 w)
 	return (w & 0x2000) == 0x2000;
 }
 
+static inline int is_mdelay(u16 w)
+{
+	return (w & 0xf000) == 0x3000;
+}
+
+static inline int is_udelay(u16 w)
+{
+	return (w & 0xf000) == 0x4000;
+}
+
 static inline unsigned int to_addr(u16 w)
 {
 	return w & ~0xf000;
@@ -473,6 +490,18 @@ static inline unsigned int to_addr(u16 w)
 static inline unsigned int to_val(u16 w)
 {
 	return w & ~0xf000;
+}
+
+/* w contains a usecs delay. This function returns a delay in usecs */
+static inline unsigned int to_udelay(u16 w)
+{
+	return w & ~0xf000;
+}
+
+/* w contains a msecs delay. This function returns a delay in usecs */
+static inline unsigned int to_mdelay(u16 w)
+{
+	return (w & ~0xf000) * 1000U;
 }
 
 #define MAX_FW_FILENAME_LEN 256
@@ -488,7 +517,7 @@ static int alloc_fw_section(struct snd_soc_component *component,
 		return -EINVAL;
 	}
 	s = &priv->fw_sections[t];
-	if (s->nregs) {
+	if (s->nsteps) {
 		dev_err(component->dev, "section has already been filled");
 		return -EBUSY;
 	}
@@ -502,7 +531,7 @@ static int alloc_fw_section(struct snd_soc_component *component,
 			return -ENOMEM;
 		}
 	}
-	s->nregs = 0;
+	s->nsteps = 0;
 	/* Temporary: only bias off (which takes a long time) can be aborted */
 	if (t == IVM6303_BIAS_STANDBY_TO_OFF)
 		s->can_be_aborted = 1;
@@ -516,7 +545,7 @@ static void free_fw_section(struct snd_soc_component *component,
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 
 	s = &priv->fw_sections[t];
-	s->nregs = 0;
+	s->nsteps = 0;
 }
 
 static int load_fw(struct snd_soc_component *component)
@@ -527,7 +556,7 @@ static int load_fw(struct snd_soc_component *component)
 	int eof_record;
 	u16 *w;
 	unsigned int addr = ADDR_INVALID, val = VAL_INVALID, pg = 0,
-	    section = IVM6303_PROBE_WRITES, reg_index = 0;
+		section = IVM6303_PROBE_WRITES, reg_index = 0, delay_us = 0;
 	static char fw_file_name[MAX_FW_FILENAME_LEN];
 
 	snprintf(fw_file_name, sizeof(fw_file_name), "ivm6303-param-%2x.bin",
@@ -548,6 +577,10 @@ static int load_fw(struct snd_soc_component *component)
 			eof_record = i;
 			break;
 		}
+		if (is_mdelay(*w))
+			delay_us += to_mdelay(*w);
+		if (is_udelay(*w))
+			delay_us += to_udelay(*w);
 		if (is_addr(*w))
 			addr = to_addr(*w);
 		if (is_val(*w))
@@ -564,6 +597,7 @@ static int load_fw(struct snd_soc_component *component)
 				/* Start new section from scratch */
 				addr = ADDR_INVALID;
 				val = VAL_INVALID;
+				delay_us = 0;
 				reg_index = 0;
 			}
 		}
@@ -580,9 +614,11 @@ static int load_fw(struct snd_soc_component *component)
 			r = &priv->fw_sections[section].regs[reg_index++];
 			r->addr = addr | pg;
 			r->val = val;
-			priv->fw_sections[section].nregs++;
+			r->delay_us = delay_us;
+			priv->fw_sections[section].nsteps++;
 			addr = ADDR_INVALID;
 			val = VAL_INVALID;
+			delay_us = 0;
 			if (reg_index >= IVM6303_SECTION_MAX_REGISTERS) {
 				dev_err(component->dev,
 					"too many registers in section %d",
