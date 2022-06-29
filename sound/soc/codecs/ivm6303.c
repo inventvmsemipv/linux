@@ -111,6 +111,8 @@ enum ivm6303_section_type {
 	IVM6303_STREAM_STOP,
 	IVM6303_SPEAKER_MODE,
 	IVM6303_RECEIVER_MODE,
+	IVM6303_BIAS_OFF_TO_STANDBY,
+	IVM6303_BIAS_STANDBY_TO_OFF,
 	IVM6303_N_SECTIONS,
 };
 
@@ -500,6 +502,9 @@ static int alloc_fw_section(struct snd_soc_component *component,
 		}
 	}
 	s->nregs = 0;
+	/* Temporary: only bias off (which takes a long time) can be aborted */
+	if (t == IVM6303_BIAS_STANDBY_TO_OFF)
+		s->can_be_aborted = 1;
 	return 0;
 }
 
