@@ -22,6 +22,7 @@
 #include <linux/atomic.h>
 #include <linux/workqueue.h>
 #include <linux/completion.h>
+#include <linux/pm_runtime.h>
 #include <sound/soc.h>
 #include <sound/tlv.h>
 #include <sound/asound.h>
@@ -1665,6 +1666,11 @@ static int ivm6303_probe(struct i2c_client *client)
 					      &soc_component_dev_ivm6303,
 					      ivm6303_dais,
 					      ARRAY_SIZE(ivm6303_dais));
+
+	pm_runtime_set_active(&client->dev);
+	pm_runtime_enable(&client->dev);
+	pm_request_autosuspend(&client->dev);
+
 end:
 	return ret;
 }
@@ -1672,6 +1678,7 @@ end:
 
 static void ivm6303_remove(struct i2c_client *client)
 {
+	pm_runtime_disable(&client->dev);
 }
 
 static const struct of_device_id ivm6303_match_table[] = {
