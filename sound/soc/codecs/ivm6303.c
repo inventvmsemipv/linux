@@ -46,6 +46,9 @@
 # define SPK_EN				BIT(0)
 # define SPK_MUTE			BIT(1)
 
+#define IVM6303_STATUS(n)		(0x09 + ((n) - 1))
+# define PLL_LOCK_OK			BIT(7)
+
 #define IVM6303_TDM_APPLY_CONF		0x30
 # define DO_APPLY_CONF			BIT(0)
 # define TDM_RESYNC			BIT(7)
@@ -95,6 +98,9 @@
 
 #define IVM6303_I2S_DAI 0
 #define IVM6303_TDM_DAI 1
+
+#define TDM_APPLY_POLL_PERIOD (5 * ((HZ)/1000))
+#define MAX_PLL_LOCKED_POLL_ATTS (100)
 
 enum ivm_tdm_size {
 	IVM_TDM_SIZE_16 = 1,
@@ -153,6 +159,7 @@ struct ivm6303_priv {
 	int			delay;
 	int			inverted_fsync;
 	int			inverted_bclk;
+	int			pll_locked_poll_attempts;
 	enum ivm6303_section_type  playback_mode_fw_section;
 	struct ivm6303_fw_section fw_sections[IVM6303_N_SECTIONS];
 	atomic_t		running_section;
@@ -653,15 +660,42 @@ static void unload_fw(struct snd_soc_component *component)
 	release_firmware(priv->fw);
 }
 
+/* Assumes regmap lock taken */
+static int _poll_pll_locked(struct ivm6303_priv *priv)
+{
+	int ret;
+	unsigned int v;
+
+	ret = regmap_read(priv->regmap, IVM6303_STATUS(1), &v);
+	if (ret < 0)
+		goto err;
+	ret = v & PLL_LOCK_OK ? 0 : -EIO;
+err:
+	return ret;
+}
+
 static void tdm_apply_handler(struct work_struct * work)
 {
 	struct ivm6303_priv *priv = container_of(work, struct ivm6303_priv,
 						 tdm_apply_work.work);
+	struct device *dev = &priv->i2c_client->dev;
 	int ret;
 	unsigned int v = 0;
 
 	pr_debug("%s called\n", __func__);
 	mutex_lock(&priv->regmap_mutex);
+	if (_poll_pll_locked(priv) < 0) {
+		mutex_unlock(&priv->regmap_mutex);
+		dev_dbg(dev, "pll not locked\n");
+		if (priv->pll_locked_poll_attempts++ >=
+		    MAX_PLL_LOCKED_POLL_ATTS) {
+			dev_err(dev, "pll lock timeout\n");
+			return;
+		}
+		queue_delayed_work(priv->wq, &priv->tdm_apply_work,
+				   TDM_APPLY_POLL_PERIOD);
+		return;
+	}
 	ret = regmap_update_bits(priv->regmap, IVM6303_TDM_APPLY_CONF,
 				 DO_APPLY_CONF, DO_APPLY_CONF);
 	if (ret < 0)
@@ -1568,8 +1602,9 @@ static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 
 	if (cmd == SNDRV_PCM_TRIGGER_START) {
 		dev_dbg(component->dev, "%s, start trigger cmd\n", __func__);
+		priv->pll_locked_poll_attempts = 0;
 		return queue_delayed_work(priv->wq, &priv->tdm_apply_work,
-					  HZ/100);
+					  TDM_APPLY_POLL_PERIOD);
 	}
 	return 0;
 }
