@@ -1606,14 +1606,22 @@ static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 {
 	struct snd_soc_component *component = dai->component;
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int ret = 0;
 
-	if (cmd == SNDRV_PCM_TRIGGER_START) {
+	switch(cmd) {
+	case SNDRV_PCM_TRIGGER_START:
 		dev_dbg(component->dev, "%s, start trigger cmd\n", __func__);
-		priv->pll_locked_poll_attempts = 0;
-		return queue_delayed_work(priv->wq, &priv->tdm_apply_work,
-					  TDM_APPLY_POLL_PERIOD);
+		if (priv->i2c_client->irq <= 0) {
+			priv->pll_locked_poll_attempts = 0;
+			ret = queue_delayed_work(priv->wq,
+						 &priv->tdm_apply_work,
+						 TDM_APPLY_POLL_PERIOD);
+		}
+		break;
+	default:
+		break;
 	}
-	return 0;
+	return ret;
 }
 
 static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
