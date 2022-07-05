@@ -168,6 +168,8 @@ static int _run_fw_section(struct ivm6303_priv *priv,
 	struct ivm6303_register *r;
 	int i, ret = 0;
 
+	dev_dbg(dev, "%s entered, section = %ld\n", __func__,
+		section - priv->fw_sections);
 	for (i = 0; i < section->nsteps; i++) {
 		if (i >= IVM6303_SECTION_MAX_REGISTERS) {
 			dev_err(dev, "%s, too many registers\n", __func__);
@@ -181,11 +183,13 @@ static int _run_fw_section(struct ivm6303_priv *priv,
 			break;
 		}
 		if (r->delay_us) {
+			dev_dbg(dev, "delaying %u usecs\n", r->delay_us);
 			if (r->delay_us > 1000)
 				mdelay(r->delay_us / 1000);
 			udelay(r->delay_us % 1000);
 		}
 	}
+	dev_dbg(dev, "leaving %s, ret = %d\n", __func__, ret);
 	return ret;
 }
 
@@ -219,18 +223,24 @@ end:
 static int run_fw_section(struct snd_soc_component *component, int s)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	struct device *dev = &priv->i2c_client->dev;
 
+	dev_dbg(dev, "%s entered, s = %d\n", __func__, s);
 	if (atomic_cmpxchg(&priv->running_section, IVM6303_NO_SECTION, s)) {
 		struct ivm6303_fw_section *section = &priv->fw_sections[s];
 
-		if (section->can_be_aborted)
+		if (section->can_be_aborted) {
+			dev_dbg(dev, "%s: section can be aborted\n", __func__);
 			cancel_work_sync(&priv->fw_exec_work);
-		else
+		} else {
+			dev_dbg(dev, "%s: waiting for completion\n", __func__);
 			wait_for_completion(&priv->fw_section_completion);
+		}
 		atomic_set(&priv->running_section, s);
 	}
 	reinit_completion(&priv->fw_section_completion);
 	/* Start */
+	dev_dbg(dev, "%s: queueing work\n", __func__);
 	return queue_work(priv->wq, &priv->fw_exec_work);
 }
 
@@ -706,9 +716,13 @@ static int ivm6303_component_write(struct snd_soc_component *component,
 static int ivm6303_set_bias_level(struct snd_soc_component *component,
 				  enum snd_soc_bias_level level)
 {
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	struct device *dev = &priv->i2c_client->dev;
 	const enum snd_soc_bias_level prev_level =
 		snd_soc_component_get_bias_level(component);
 
+	dev_dbg(dev, "%s: level = %d, prev_level = %d\n", __func__, level,
+		prev_level);
 	switch(level) {
 	case SND_SOC_BIAS_ON:
 	case SND_SOC_BIAS_PREPARE:
