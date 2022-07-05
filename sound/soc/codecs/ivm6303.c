@@ -674,13 +674,34 @@ err:
 	return ret;
 }
 
+/* Assumes regmap lock taken */
+static void _tdm_apply_handler(struct ivm6303_priv *priv)
+{
+	int stat;
+	unsigned int v = 0;
+
+	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_APPLY_CONF,
+				  DO_APPLY_CONF, DO_APPLY_CONF);
+	if (stat < 0)
+		pr_err("%s: error setting tdm config\n", __func__);
+	udelay(1000);
+	if (priv->delay)
+		v |= TDM_DELAY_MODE;
+	if (priv->fsync_edge)
+		v |= TDM_FSYN_POLARITY;
+	if (priv->inverted_bclk)
+		v |= TDM_BCLK_POLARITY;
+	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(1),
+				  TDM_SETTINGS_MASK, v);
+	if (stat < 0)
+		pr_err("%s: error setting tdm config\n", __func__);
+}
+
 static void tdm_apply_handler(struct work_struct * work)
 {
 	struct ivm6303_priv *priv = container_of(work, struct ivm6303_priv,
 						 tdm_apply_work.work);
 	struct device *dev = &priv->i2c_client->dev;
-	int ret;
-	unsigned int v = 0;
 
 	pr_debug("%s called\n", __func__);
 	mutex_lock(&priv->regmap_mutex);
@@ -696,22 +717,8 @@ static void tdm_apply_handler(struct work_struct * work)
 				   TDM_APPLY_POLL_PERIOD);
 		return;
 	}
-	ret = regmap_update_bits(priv->regmap, IVM6303_TDM_APPLY_CONF,
-				 DO_APPLY_CONF, DO_APPLY_CONF);
-	if (ret < 0)
-		pr_err("%s: error setting tdm config\n", __func__);
-	udelay(1000);
-	if (priv->delay)
-		v |= TDM_DELAY_MODE;
-	if (priv->fsync_edge)
-		v |= TDM_FSYN_POLARITY;
-	if (priv->inverted_bclk)
-		v |= TDM_BCLK_POLARITY;
-	ret = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(1),
-				 TDM_SETTINGS_MASK, v);
+	_tdm_apply_handler(priv);
 	mutex_unlock(&priv->regmap_mutex);
-	if (ret < 0)
-		pr_err("%s: error setting tdm config\n", __func__);
 }
 
 static unsigned int ivm6303_component_read(struct snd_soc_component *component,
