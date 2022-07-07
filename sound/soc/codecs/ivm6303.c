@@ -152,6 +152,20 @@ enum ivm6303_section_type {
 	IVM6303_N_SECTIONS,
 };
 
+enum ivm6303_irq {
+	/*
+	 * clk_mon_fault, pwrok_fault, tsd_lev2_fault, tsd_lev1_fault,
+	 * clk_ocp_fault, pll_lock_fault
+	 */
+	IVM6303_IRQ_FAULTS1 = 0,
+	/*
+	 * tdm_i_fault, tdm_fifo_i_fault, tdm_o_fault, tdm_fifo_o_fault,
+	 * tdm_bst_ovp_fault, tdm_bst_ocp_fault
+	 */
+	IVM6303_IRQ_FAULTS2,
+	IVM6303_IRQ_PLL_LOCK_OK,
+};
+
 struct ivm6303_platform_data {
 };
 
@@ -189,6 +203,7 @@ struct ivm6303_priv {
 	int			inverted_fsync;
 	int			inverted_bclk;
 	int			pll_locked_poll_attempts;
+	struct regmap_irq_chip_data *irq_data;
 	enum ivm6303_section_type  playback_mode_fw_section;
 	struct ivm6303_fw_section fw_sections[IVM6303_N_SECTIONS];
 	atomic_t		running_section;
@@ -748,6 +763,23 @@ static void tdm_apply_handler(struct work_struct * work)
 	}
 	_tdm_apply_handler(priv);
 	mutex_unlock(&priv->regmap_mutex);
+}
+
+static irqreturn_t ivm6303_pll_lock_ok_handler(int irq, void *_priv)
+{
+	struct ivm6303_priv *priv = _priv;
+	struct device *dev = &priv->i2c_client->dev;
+	int stat;
+
+	/* Threaded IRQ, we can sleep */
+	mutex_lock(&priv->regmap_mutex);
+	_tdm_apply_handler(priv);
+	stat = regmap_update_bits(priv->regmap, IVM6303_IRQ_STATUS(1),
+				  IRQ_PLL_LOCK_OK, IRQ_PLL_LOCK_OK);
+	mutex_unlock(&priv->regmap_mutex);
+	if (stat < 0)
+		dev_err(dev, "error clearing irq pll lock ok interrupt\n");
+	return IRQ_HANDLED;
 }
 
 static unsigned int ivm6303_component_read(struct snd_soc_component *component,
@@ -1758,6 +1790,72 @@ static struct snd_soc_dai_driver ivm6303_dais[] = {
 	},
 };
 
+static struct regmap_irq ivm6303_irqs[] = {
+	/* Interrupt status 1 */
+	[IVM6303_IRQ_FAULTS1] = {
+		.mask = IRQ_FAULTS1_MASK,
+	},
+	[IVM6303_IRQ_PLL_LOCK_OK] = {
+		.mask = IRQ_PLL_LOCK_OK,
+	},
+	/* Interrupt status 2 */
+	[IVM6303_IRQ_FAULTS2] = {
+		.reg_offset = 2,
+		.mask = IRQ_FAULTS2_MASK,
+	},
+};
+
+static struct regmap_irq_chip ivm6303_irq_chip = {
+	.name = "ivm6303",
+	.irqs = ivm6303_irqs,
+	.num_irqs = ARRAY_SIZE(ivm6303_irqs),
+	.num_regs = 6,
+	.status_base = IVM6303_IRQ_STATUS(1),
+	.mask_base = IVM6303_IRQ_MASK(1),
+	.ack_base = IVM6303_IRQ_STATUS(1),
+};
+
+static int ivm6303_irq_chip_init(struct ivm6303_priv *priv)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	unsigned long flags = IRQF_TRIGGER_LOW|IRQF_ONESHOT;
+	int ret = -EINVAL;
+
+	if (!priv->regmap || priv->i2c_client->irq < 0) {
+		dev_err(dev, "incorrect parameters\n");
+		return -EINVAL;
+	}
+
+	ret = devm_regmap_add_irq_chip(dev,
+				       priv->regmap, priv->i2c_client->irq,
+				       flags, 0, &ivm6303_irq_chip,
+				       &priv->irq_data);
+	if (ret < 0)
+		dev_err(dev, "error %d from devm_regmap_add_irq_chip\n", ret);
+	return ret;
+}
+
+int ivm6303_setup_irqs(struct ivm6303_priv *priv)
+{
+	int irq, ret;
+	struct device *dev = &priv->i2c_client->dev;
+
+	irq = regmap_irq_get_virq(priv->irq_data, IVM6303_IRQ_PLL_LOCK_OK);
+	if (irq < 0) {
+		dev_err(dev, "regmap_irq_get_virq() returned %d\n", irq);
+		return irq;
+	}
+	ret = devm_request_threaded_irq(dev, irq, NULL,
+					ivm6303_pll_lock_ok_handler,
+					IRQF_TRIGGER_LOW|IRQF_ONESHOT,
+					"ivm6303-pll-lock-ok", priv);
+	if (ret)
+		dev_err(dev, "devm_request_threaded_irq() returned %d\n", ret);
+	ret = regmap_update_bits(priv->regmap, IVM6303_IRQ_MASK(1),
+				 IRQ_PLL_LOCK_OK, IRQ_PLL_LOCK_OK);
+	return ret;
+}
+
 static int ivm6303_probe(struct i2c_client *client)
 {
 	struct ivm6303_priv  *priv;
@@ -1789,6 +1887,14 @@ static int ivm6303_probe(struct i2c_client *client)
 	}
 	priv->playback_mode_fw_section = IVM6303_SPEAKER_MODE;
 	init_completion(&priv->fw_section_completion);
+
+	if (priv->i2c_client->irq > 0) {
+		if (ivm6303_irq_chip_init(priv) < 0)
+			priv->i2c_client->irq = 0;
+		if (priv->i2c_client->irq > 0)
+			if (ivm6303_setup_irqs(priv) < 0)
+				priv->i2c_client->irq = 0;
+	}
 
 	i2c_set_clientdata(client, priv);
 	ret = devm_snd_soc_register_component(&client->dev,
