@@ -46,6 +46,35 @@
 # define SPK_EN				BIT(0)
 # define SPK_MUTE			BIT(1)
 
+#define IVM6303_IRQ_STATUS(n)		(0x03 + (((n) - 1) << 1))
+/* Interrupt Status 1 */
+# define IRQ_CLK_MON_FAULT		BIT(0)
+# define IRQ_PWROK_FAULT		BIT(1)
+# define IRQ_TSD_LEV2_FAULT		BIT(2)
+# define IRQ_TSD_LEV1_FAULT		BIT(3)
+# define IRQ_TEMP_DIG_CHANGE		BIT(4)
+# define IRQ_CLD_OCP_FAULT		BIT(5)
+# define IRQ_PLL_LOCK_OK		BIT(6)
+# define IRQ_PLL_LOCK_FAULT		BIT(7)
+# define IRQ_FAULTS1_MASK (IRQ_CLK_MON_FAULT|IRQ_PWROK_FAULT|		\
+			   IRQ_TSD_LEV2_FAULT|IRQ_TSD_LEV1_FAULT|	\
+			   IRQ_CLD_OCP_FAULT|IRQ_PLL_LOCK_FAULT)
+
+/* Interrupt status 2 */
+# define IRQ_TDM_I_FAULT		BIT(0)
+# define IRQ_TDM_FIFO_I_FAULT		BIT(1)
+# define IRQ_TDM_O_FAULT		BIT(2)
+# define IRQ_TDM_FIFO_O_FAULT		BIT(3)
+# define IRQ_CLASSD_NG_OFF		BIT(4)
+# define IRQ_CLASSD_NG_ON		BIT(5)
+# define IRQ_BST_OVP_FAULT		BIT(6)
+# define IRQ_BST_OCP_FAULT		BIT(7)
+# define IRQ_FAULTS2_MASK (IRQ_TDM_I_FAULT|IRQ_TDM_FIFO_I_FAULT| \
+			   IRQ_TDM_O_FAULT|IRQ_TDM_FIFO_O_FAULT| \
+			   IRQ_BST_OVP_FAULT|IRQ_BST_OCP_FAULT)
+
+#define IVM6303_IRQ_MASK(n)		(0x04 + (((n) - 1) << 1))
+
 #define IVM6303_STATUS(n)		(0x09 + ((n) - 1))
 # define PLL_LOCK_OK			BIT(7)
 
