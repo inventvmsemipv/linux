@@ -1,6 +1,7 @@
 // configfs based asoc card
 #include <linux/slab.h>
 #include <linux/module.h>
+#include <linux/bitops.h>
 #include <linux/configfs.h>
 #include <linux/platform_device.h>
 #include <linux/i2c.h>
@@ -309,6 +310,24 @@ static ssize_t asoc_card_frameclock_master_store(struct config_item *item,
 	return _set_bitclock_master(page, len, &sc->cpu_frameclock_master);
 }
 
+static void fixup_total_slots(struct asoc_configfs_soundcard *sc)
+{
+	int i;
+
+	if (sc->total_slots)
+		/* Already assigned (I2S) */
+		return;
+
+	for (i = 0; i < sc->ncodecs; i++) {
+		int rxns, txns;
+
+		rxns = hweight_long(sc->codecs[i].rx_mask);
+		txns = hweight_long(sc->codecs[i].tx_mask);
+		sc->total_slots += max(rxns, txns);
+	}
+	pr_debug("%s calculated %lu slots\n", __func__, sc->total_slots);
+}
+
 static ssize_t asoc_card_command_store(struct config_item *item,
 				       const char *page, size_t len)
 {
@@ -320,6 +339,7 @@ static ssize_t asoc_card_command_store(struct config_item *item,
 		pr_err("say start to register and start up the board\n");
 		return -EINVAL;
 	}
+	fixup_total_slots(sc);
 	pdev = platform_device_register_resndata(NULL, sc->name,
 						 atomic_inc_return(&asoc_sc_instance),
 						 NULL, 0,
