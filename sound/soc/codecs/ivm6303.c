@@ -260,7 +260,7 @@ static void fw_exec_handler(struct work_struct *work)
 		goto end;
 	}
 	section = &priv->fw_sections[s];
-	if (!section->regs) {
+	if (!section->nsteps) {
 		dev_dbg(dev, "trying to run empty section %d", s);
 		goto end;
 	}
