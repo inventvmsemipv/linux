@@ -231,6 +231,50 @@ struct ivm6303_fw_section {
 	int nsteps;
 };
 
+/*
+ * Structure describing a "virtual" register made of
+ * bit fields distributed over several different registers.
+ *
+ * @nfields: number of fields.
+ * @fields: array of registers fields
+ */
+struct ivm6303_mfr {
+	int nfields;
+	struct reg_field fields[];
+};
+
+enum ivm6303_mfr_num {
+	IVM6303_MFR_GAIN_100_OFFS_COMP = 0,
+	IVM6303_MFR_CALC_AZ_MEAS_INT,
+	IVM6303_MFR_V_SENSE,
+	IVM6303_MFR_NR,
+};
+
+#define IVM6303_MFR(name, nf, fs)		 \
+	static const struct ivm6303_mfr name = { \
+		.nfields = nf,			 \
+		.fields = fs,			 \
+	}
+
+#define ARRAY(args...) { args }
+
+IVM6303_MFR(gain_100_offs_comp, 2,
+	    ARRAY(REG_FIELD(IVM6303_GAIN_100_OFFS_COMP_LO, 4, 7),
+		  REG_FIELD(IVM6303_GAIN_100_OFFS_COMP_HI, 0, 7)));
+IVM6303_MFR(calc_az_meas_int, 3,
+	    ARRAY(REG_FIELD(IVM6303_CAL_STATUS(6), 0, 7),
+		  REG_FIELD(IVM6303_CAL_STATUS(5), 0, 7),
+		  REG_FIELD(IVM6303_CAL_STATUS(4), 0, 4)));
+IVM6303_MFR(v_sense, 2,
+	    ARRAY(REG_FIELD(IVM6303_VSENSE + 1, 0, 7),
+		  REG_FIELD(IVM6303_VSENSE, 0, 7)));
+
+static const struct ivm6303_mfr *ivm6303_mfrs[] = {
+	[ IVM6303_MFR_GAIN_100_OFFS_COMP ] = &gain_100_offs_comp,
+	[ IVM6303_MFR_CALC_AZ_MEAS_INT ] = &calc_az_meas_int,
+	[ IVM6303_MFR_V_SENSE ] = &v_sense,
+};
+
 struct ivm6303_priv {
 	struct workqueue_struct	*wq;
 	struct delayed_work	pll_locked_work;
