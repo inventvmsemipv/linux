@@ -247,6 +247,7 @@ enum ivm6303_mfr_num {
 	IVM6303_MFR_GAIN_100_OFFS_COMP = 0,
 	IVM6303_MFR_CALC_AZ_MEAS_INT,
 	IVM6303_MFR_V_SENSE,
+	IVM6303_MFR_VIS_SETTINGS,
 	IVM6303_MFR_NR,
 };
 
@@ -268,11 +269,16 @@ IVM6303_MFR(calc_az_meas_int, 3,
 IVM6303_MFR(v_sense, 2,
 	    ARRAY(REG_FIELD(IVM6303_VSENSE + 1, 0, 7),
 		  REG_FIELD(IVM6303_VSENSE, 0, 7)));
+IVM6303_MFR(vis_settings, 3,
+	    ARRAY(REG_FIELD(IVM6303_VISENSE_SETTINGS(1), 0, 7),
+		  REG_FIELD(IVM6303_VISENSE_SETTINGS(6), 0, 7),
+		  REG_FIELD(IVM6303_VISENSE_SETTINGS(8), 0, 7)));
 
 static const struct ivm6303_mfr *ivm6303_mfrs[] = {
 	[ IVM6303_MFR_GAIN_100_OFFS_COMP ] = &gain_100_offs_comp,
 	[ IVM6303_MFR_CALC_AZ_MEAS_INT ] = &calc_az_meas_int,
 	[ IVM6303_MFR_V_SENSE ] = &v_sense,
+	[ IVM6303_MFR_VIS_SETTINGS ] = &vis_settings,
 };
 
 struct ivm6303_priv {
@@ -299,7 +305,85 @@ struct ivm6303_priv {
 	struct ivm6303_fw_section fw_sections[IVM6303_N_SECTIONS];
 	atomic_t		running_section;
 	int			tdm_apply_needed;
+	int			autocal_done;
 };
+
+static long sign_extend(unsigned long v, int nbits)
+{
+	 unsigned long mask = ~((1 << nbits) - 1);
+	 unsigned long msb_mask = 1 << (nbits - 1);
+
+	 return (long)(v | (v & msb_mask ? mask : 0));
+}
+
+/* Assumes regmap mutex taken */
+static int _ivm6303_mfr_read(struct ivm6303_priv *priv,
+			     unsigned int mfr_index,
+			     long *value, int sext)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	const struct ivm6303_mfr *mfr;
+	int i, ret, shift, nbits;
+	unsigned long _value;
+
+	if (mfr_index >= IVM6303_MFR_NR)
+		return -EINVAL;
+	*value = 0;
+	mfr = ivm6303_mfrs[mfr_index];
+	for (i = 0, shift = 0, _value = 0; i < mfr->nfields;
+	     i++, shift += nbits) {
+		unsigned int v;
+		unsigned long msk;
+		const struct reg_field *rf = &mfr->fields[i];
+
+		nbits = rf->msb - rf->lsb + 1;
+		msk = ((1 << nbits) - 1) << rf->lsb;
+		ret = regmap_read(priv->regmap, rf->reg, &v);
+		if (ret < 0) {
+			dev_err(dev, "error reading register field\n");
+			break;
+		}
+		v &= msk;
+		v >>= rf->lsb;
+		_value |= (v <<= shift);
+	}
+	if (!ret)
+		*value = sext ? sign_extend(_value, shift) : (long)_value;
+	return ret;
+}
+
+/* Assumes regmap mutex taken */
+static int _ivm6303_mfr_write(struct ivm6303_priv *priv,
+			      unsigned int mfr_index,
+			      long value)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	const struct ivm6303_mfr *mfr;
+	int i, ret, shift, nbits;
+
+	if (mfr_index >= IVM6303_MFR_NR)
+		return -EINVAL;
+	mfr = ivm6303_mfrs[mfr_index];
+	for (i = 0, shift = 0; i < mfr->nfields; i++, shift += nbits) {
+		unsigned int v;
+		unsigned long msk;
+		const struct reg_field *rf = &mfr->fields[i];
+
+		nbits = rf->msb - rf->lsb + 1;
+		msk = ((1 << nbits) - 1);
+		v = ((unsigned long)value & (msk << shift)) >> shift;
+		ret = regmap_update_bits(priv->regmap,
+					 rf->reg,
+					 msk << rf->lsb,
+					 v << rf->lsb);
+		if (ret < 0) {
+			dev_err(dev, "error writing register field\n");
+			break;
+		}
+	}
+	return ret;
+}
+
 
 /*
  * Assumes regmap mutex taken
@@ -807,6 +891,97 @@ static void unload_fw(struct snd_soc_component *component)
 }
 
 /* Assumes regmap lock taken */
+static int _az_avg_calc(struct ivm6303_priv *priv, long *v)
+{
+	return -EIO;
+}
+
+/* Assumes regmap lock taken */
+static int _pre_az_avg_calc(struct ivm6303_priv *priv)
+{
+	return -EIO;
+}
+
+/* Assumes regmap lock taken */
+static int _vsense_check_loop(struct ivm6303_priv *priv, long az_avg,
+			      long gain_offs_comp_v)
+{
+	return -EIO;
+}
+
+static int _do_autocal(struct ivm6303_priv *priv)
+{
+	int ret, _ret;
+	unsigned int gain_100_offs_int_comp_v;
+	long gain_100_offs_comp_v, az_avg;
+	long vis_settings_saved_vals;
+	/* A0: LSB, A7: MSB */
+	long vis_settings_enter_vals = 0x5f2701;
+	u8 cal_intfb_leave_vals[] = { 0x00, 0x00, };
+	struct device *dev = &priv->i2c_client->dev;
+
+	/*
+	 * save value of register 0xdf (it could change during the autozero
+	 * calc procedure
+	 */
+	ret = regmap_read(priv->regmap, IVM6303_GAIN_OFFS_INTFB_COMP(4),
+			  &gain_100_offs_int_comp_v);
+	if (ret)
+		goto end;
+	ret = _ivm6303_mfr_read(priv, IVM6303_MFR_GAIN_100_OFFS_COMP,
+				&gain_100_offs_comp_v, 1);
+	if (ret)
+		goto end;
+	/*
+	 * Save Vs/Is settings registers and set them properly
+	 * for the calibration procedure
+	 */
+	ret = _ivm6303_mfr_read(priv, IVM6303_MFR_VIS_SETTINGS,
+				&vis_settings_saved_vals, 0);
+	if (ret)
+		goto end;
+	ret = _ivm6303_mfr_write(priv, IVM6303_MFR_VIS_SETTINGS,
+				 vis_settings_enter_vals);
+	if (ret < 0)
+		goto end;
+	ret = _pre_az_avg_calc(priv);
+	if (ret < 0)
+		goto end;
+	ret = _az_avg_calc(priv, &az_avg);
+	dev_dbg(dev, "Autocal: az_avg = %ld\n", az_avg);
+	if (ret < 0)
+		goto pdown;
+	/* restore register 0xdf */
+	ret = _ivm6303_mfr_write(priv, IVM6303_MFR_GAIN_100_OFFS_COMP,
+				 gain_100_offs_comp_v);
+	if (ret < 0)
+		goto pdown;
+	/* Check new vsense after correction */
+	ret = _vsense_check_loop(priv, az_avg, gain_100_offs_comp_v);
+	if (ret < 0)
+		goto end;
+pdown:
+	/*
+	 * all done, restore Vs/Is settings (with 0xa0 forced to 0)
+	 * and leave calibration internal feedback
+	 * Best effort, no error check on return here
+	 */
+	/* Force register 0xa0 to 0 */
+	vis_settings_saved_vals &= ~0xff;
+	_ret = _ivm6303_mfr_write(priv, IVM6303_MFR_VIS_SETTINGS,
+				  vis_settings_saved_vals);
+	if (_ret < 0 && ret >= 0)
+		ret = _ret;
+	_ret = regmap_bulk_write(priv->regmap, IVM6303_ANALOG_REG3_FORCE,
+				 cal_intfb_leave_vals,
+				 ARRAY_SIZE(cal_intfb_leave_vals));
+	if (_ret < 0 && ret >= 0)
+		ret = _ret;
+end:
+	return ret;
+}
+
+/* Assumes regmap lock taken */
 static int _poll_pll_locked(struct ivm6303_priv *priv)
 {
 	int ret;
@@ -870,6 +1045,12 @@ static void _turn_speaker_on(struct ivm6303_priv *priv)
 				  BST_EN, BST_EN);
 	if (stat < 0)
 		pr_err("Error enabling boost\n");
+	/* Do autocal if needed */
+	if (!priv->autocal_done) {
+		stat = _do_autocal(priv);
+		if (!stat)
+			priv->autocal_done = 1;
+	}
 	/* Finally leave internal feedback */
 	stat = regmap_bulk_write(priv->regmap, IVM6303_FORCE_INTFB,
 				 leave_intfb_vals,
@@ -1072,8 +1253,7 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 	}
 	INIT_DELAYED_WORK(&priv->pll_locked_work, pll_locked_handler);
 	INIT_WORK(&priv->fw_exec_work, fw_exec_handler);
-	ret = run_fw_section_sync(component, IVM6303_PROBE_WRITES);
-	return ret;
+	return run_fw_section_sync(component, IVM6303_PROBE_WRITES);
 }
 
 static void ivm6303_component_remove(struct snd_soc_component *component)
