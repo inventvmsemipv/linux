@@ -260,22 +260,20 @@ struct ivm6303_priv {
 /*
  * Assumes regmap mutex taken
  */
-static int _run_fw_section(struct ivm6303_priv *priv,
-			   struct ivm6303_fw_section *section)
+static int _do_regs_assign_seq(struct ivm6303_priv *priv,
+			       int nsteps,
+			       struct ivm6303_register *regs)
 {
 	struct device *dev = &priv->i2c_client->dev;
 	struct ivm6303_register *r;
 	int i, ret = 0;
 
-	dev_dbg(dev, "%s entered, section = %ld\n", __func__,
-		section - priv->fw_sections);
-	for (i = 0; i < section->nsteps; i++) {
+	for (i = 0, r = regs; i < nsteps; i++, r++) {
 		if (i >= IVM6303_SECTION_MAX_REGISTERS) {
 			dev_err(dev, "%s, too many registers\n", __func__);
 			ret = -ENOMEM;
 			break;
 		}
-		r = &section->regs[i];
 		ret = regmap_write(priv->regmap, r->addr, r->val);
 		if (ret < 0) {
 			dev_err(dev, "error writing to register %u", r->addr);
@@ -288,6 +286,18 @@ static int _run_fw_section(struct ivm6303_priv *priv,
 			udelay(r->delay_us % 1000);
 		}
 	}
+	return ret;
+}
+
+static int _run_fw_section(struct ivm6303_priv *priv,
+			   struct ivm6303_fw_section *section)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	int ret;
+
+	dev_dbg(dev, "%s entered, section = %ld\n", __func__,
+		section - priv->fw_sections);
+	ret = _do_regs_assign_seq(priv, section->nsteps, section->regs);
 	dev_dbg(dev, "leaving %s, ret = %d\n", __func__, ret);
 	return ret;
 }
