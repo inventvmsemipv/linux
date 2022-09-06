@@ -987,11 +987,55 @@ static int _pre_az_avg_calc(struct ivm6303_priv *priv)
 	return _do_regs_assign_seq(priv, ARRAY_SIZE(seq), seq);
 }
 
+static int _get_avg_vsense(struct ivm6303_priv *priv, long *out)
+{
+#define VSENSE_AVG_SAMPLES 16
+	int i, ret;
+	long v, w;
+
+	for (i = 0, v = 0; i < VSENSE_AVG_SAMPLES; i++) {
+	    ret =  _ivm6303_mfr_read(priv, IVM6303_MFR_V_SENSE, &w, 1);
+		if (ret < 0)
+			return ret;
+		v += w;
+	}
+	*out = v / VSENSE_AVG_SAMPLES;
+	return ret;
+}
+
+#define MAX_ERROR_THR 4
+#define MAX_ITERATIONS 10
+
 /* Assumes regmap lock taken */
 static int _vsense_check_loop(struct ivm6303_priv *priv, long az_avg,
-			      long gain_offs_comp_v)
+			      long _gain_offs_comp_v)
 {
-	return -EIO;
+	struct device *dev = &priv->i2c_client->dev;
+	long error, avg_vsns, gain_offs_com_v = _gain_offs_comp_v;
+	int ret, i;
+
+	for (i = 0; i < MAX_ITERATIONS; i++) {
+		ret = _get_avg_vsense(priv, &avg_vsns);
+		if (ret < 0)
+			return ret;
+		error = avg_vsns - az_avg;
+		if (error && abs(error) < MAX_ERROR_THR)
+			break;
+		/* FIXME !!!!!! */
+		/* Delta(Offset)/Delta(az) rate of change is 256/30 */
+		gain_offs_com_v += (error << 8)/30;
+		ret = _ivm6303_mfr_read(priv,
+					IVM6303_MFR_GAIN_100_OFFS_COMP,
+					&gain_offs_com_v, 1);
+	}
+	if (ret) {
+		dev_err(dev, "Autocal failed (%d)\n", ret);
+		return ret;
+	}
+	ret = i < MAX_ITERATIONS ? 0 : -ETIMEDOUT;
+	dev_dbg(dev, "Autocal retcode %d, %d iterations, final error = %ld\n",
+		ret, i, error);
+	return ret;
 }
 
 static int _do_autocal(struct ivm6303_priv *priv)
