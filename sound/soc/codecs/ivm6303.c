@@ -530,7 +530,7 @@ static inline int is_file_end(u16 w)
 
 static inline int is_new_section(u16 w)
 {
-	return (w & 0x2000) == 0x2000;
+	return (w & 0xf000) == 0x2000;
 }
 
 static inline int is_mdelay(u16 w)
