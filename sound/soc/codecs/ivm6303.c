@@ -134,6 +134,11 @@
 #define IVM6303_VISENSE_SETTINGS(x)	(0xa0 + ((x) - 1))
 
 #define IVM6303_CAL_SETTINGS(x)		((x - 1) + 0xe0)
+/* IVM6303_CAL_SETTINGS(3) */
+# define CAL_AZ_EN			 BIT(2)
+# define CAL_MODE_INTFB_ONLY_2MEAS	 BIT(4)
+# define CAL_MODE_INTFB_ONLY_1MEAS	(3 << 4)
+
 #define IVM6303_CAL_STATUS(x)		((x - 1) + 0xea)
 
 #define IVM6303_PAGE_SELECTION		0xfe
@@ -144,7 +149,10 @@
 #define IVM6303_ANALOG_REG3_FORCE	0x114
 #define IVM6303_ANALOG_REG3		0x115
 #define IVM6303_TEST_DIG1_FORCE		0x116
+# define FORCE_SEQ_CAL_EN		BIT(4)
+
 #define IVM6303_TEST_DIG1		0x117
+# define SEQ_CAL_EN_M			BIT(4)
 
 #define IVM6303_GAIN_000_OFFS_COMP_HI	0x1d2
 /* Reg 0x1d3 is shared */
@@ -891,15 +899,92 @@ static void unload_fw(struct snd_soc_component *component)
 }
 
 /* Assumes regmap lock taken */
-static int _az_avg_calc(struct ivm6303_priv *priv, long *v)
+static int _prepare_az_meas(struct ivm6303_priv *priv, int cycle)
 {
-	return -EIO;
+	struct ivm6303_register seq[] = {
+		{
+			.addr = IVM6303_TEST_DIG1_FORCE,
+			.val = FORCE_SEQ_CAL_EN,
+		},
+		{
+			.addr = IVM6303_TEST_DIG1,
+			.val = 0,
+		},
+		{
+			.addr = IVM6303_CAL_SETTINGS(3),
+			.val = cycle ?
+			/* 0x14 */
+			CAL_AZ_EN | CAL_MODE_INTFB_ONLY_2MEAS :
+			/* 0x34 */
+			CAL_AZ_EN | CAL_MODE_INTFB_ONLY_1MEAS,
+		},
+		{
+			.addr = IVM6303_TEST_DIG1,
+			.val = SEQ_CAL_EN_M,
+		},
+	};
+
+	return _do_regs_assign_seq(priv, ARRAY_SIZE(seq), seq);
+}
+
+/* Assumes regmap lock taken */
+static int _post_az_seq(struct ivm6303_priv *priv)
+{
+	struct ivm6303_register seq[] = {
+		{
+			.addr = IVM6303_TEST_DIG1_FORCE,
+			.val = 0,
+		},
+		{
+			.addr = IVM6303_TEST_DIG1,
+			.val = 0,
+		},
+	};
+
+	return _do_regs_assign_seq(priv, ARRAY_SIZE(seq), seq);
+}
+
+/* Assumes regmap lock taken */
+static int _az_avg_calc(struct ivm6303_priv *priv, long *out)
+{
+	long autozero, v;
+	int i, ret;
+
+	for (i = 0, autozero = 0; i < 2; i++, autozero += v) {
+
+		ret = _prepare_az_meas(priv, i);
+		if (ret < 0)
+			return ret;
+		msleep(100);
+		ret = _ivm6303_mfr_read(priv, IVM6303_MFR_CALC_AZ_MEAS_INT,
+					&v, 1);
+		if (ret < 0)
+			return ret;
+	}
+	*out = (autozero / i) >> 5;
+	return _post_az_seq(priv);
 }
 
 /* Assumes regmap lock taken */
 static int _pre_az_avg_calc(struct ivm6303_priv *priv)
 {
-	return -EIO;
+	struct ivm6303_register seq[] = {
+		/* FIXME: USE REGISTERS NAMES */
+		{
+			.addr = 0xa7,
+			.val = 0x5f,
+		},
+		{
+			.addr = 0xa5,
+			.val = 0x27,
+		},
+		{
+			.addr = 0xa0,
+			.val = 0x01,
+		}
+	};
+
+	return _do_regs_assign_seq(priv, ARRAY_SIZE(seq), seq);
 }
 
 /* Assumes regmap lock taken */
