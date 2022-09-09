@@ -129,7 +129,7 @@
 #define IVM6303_I2S_DAI 0
 #define IVM6303_TDM_DAI 1
 
-#define TDM_APPLY_POLL_PERIOD (5 * ((HZ)/1000))
+#define PLL_LOCKED_POLL_PERIOD (5 * ((HZ)/1000))
 #define MAX_PLL_LOCKED_POLL_ATTS (100)
 
 enum ivm_tdm_size {
@@ -187,7 +187,7 @@ struct ivm6303_fw_section {
 
 struct ivm6303_priv {
 	struct workqueue_struct	*wq;
-	struct delayed_work	tdm_apply_work;
+	struct delayed_work	pll_locked_work;
 	struct work_struct	fw_exec_work;
 	struct completion	fw_section_completion;
 	struct i2c_client	*i2c_client;
@@ -720,15 +720,15 @@ err:
 }
 
 /* Assumes regmap lock taken */
-static void _tdm_apply_handler(struct ivm6303_priv *priv)
+static void _pll_locked_handler(struct ivm6303_priv *priv)
 {
 	/* TO BE FILLED IN WITH CORRECT SPEAKER ON SEQUENCE */
 }
 
-static void tdm_apply_handler(struct work_struct * work)
+static void pll_locked_handler(struct work_struct * work)
 {
 	struct ivm6303_priv *priv = container_of(work, struct ivm6303_priv,
-						 tdm_apply_work.work);
+						 pll_locked_work.work);
 	struct device *dev = &priv->i2c_client->dev;
 
 	pr_debug("%s called\n", __func__);
@@ -741,11 +741,11 @@ static void tdm_apply_handler(struct work_struct * work)
 			dev_err(dev, "pll lock timeout\n");
 			return;
 		}
-		queue_delayed_work(priv->wq, &priv->tdm_apply_work,
-				   TDM_APPLY_POLL_PERIOD);
+		queue_delayed_work(priv->wq, &priv->pll_locked_work,
+				   PLL_LOCKED_POLL_PERIOD);
 		return;
 	}
-	_tdm_apply_handler(priv);
+	_pll_locked_handler(priv);
 	mutex_unlock(&priv->regmap_mutex);
 }
 
@@ -757,7 +757,7 @@ static irqreturn_t ivm6303_pll_lock_ok_handler(int irq, void *_priv)
 
 	/* Threaded IRQ, we can sleep */
 	mutex_lock(&priv->regmap_mutex);
-	_tdm_apply_handler(priv);
+	_pll_locked_handler(priv);
 	stat = regmap_update_bits(priv->regmap, IVM6303_IRQ_STATUS(1),
 				  IRQ_PLL_LOCK_OK, IRQ_PLL_LOCK_OK);
 	mutex_unlock(&priv->regmap_mutex);
@@ -878,7 +878,7 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 		unload_fw(component);
 		return -ENOMEM;
 	}
-	INIT_DELAYED_WORK(&priv->tdm_apply_work, tdm_apply_handler);
+	INIT_DELAYED_WORK(&priv->pll_locked_work, pll_locked_handler);
 	INIT_WORK(&priv->fw_exec_work, fw_exec_handler);
 	ret = run_fw_section_sync(component, IVM6303_PROBE_WRITES);
 	return ret;
@@ -888,7 +888,7 @@ static void ivm6303_component_remove(struct snd_soc_component *component)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 
-	cancel_delayed_work_sync(&priv->tdm_apply_work);
+	cancel_delayed_work_sync(&priv->pll_locked_work);
 	flush_workqueue(priv->wq);
 	unload_fw(component);
 }
@@ -1699,8 +1699,8 @@ static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 		if (priv->i2c_client->irq <= 0) {
 			priv->pll_locked_poll_attempts = 0;
 			ret = queue_delayed_work(priv->wq,
-						 &priv->tdm_apply_work,
-						 TDM_APPLY_POLL_PERIOD);
+						 &priv->pll_locked_work,
+						 PLL_LOCKED_POLL_PERIOD);
 		}
 		break;
 	default:
