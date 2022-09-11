@@ -208,6 +208,7 @@ struct ivm6303_priv {
 	enum ivm6303_section_type  playback_mode_fw_section;
 	struct ivm6303_fw_section fw_sections[IVM6303_N_SECTIONS];
 	atomic_t		running_section;
+	int			tdm_apply_needed;
 };
 
 /*
@@ -719,10 +720,28 @@ err:
 	return ret;
 }
 
-/* Assumes regmap lock taken */
+/* Assumes regmap mutex taken */
+static void _do_tdm_apply(struct ivm6303_priv *priv)
+{
+	int stat;
+	struct device *dev = &priv->i2c_client->dev;
+
+	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_APPLY_CONF,
+				  DO_APPLY_CONF, DO_APPLY_CONF);
+	if (stat < 0)
+		dev_err(dev, "%s: could not apply TDM conf", __func__);
+}
+
+/* Assumes regmap mutex taken */
 static void _pll_locked_handler(struct ivm6303_priv *priv)
 {
-	/* TO BE FILLED IN WITH CORRECT SPEAKER ON SEQUENCE */
+	struct device *dev = &priv->i2c_client->dev;
+
+	if (priv->tdm_apply_needed) {
+		dev_dbg(dev, "%s: doing tdm apply\n", __func__);
+		_do_tdm_apply(priv);
+		priv->tdm_apply_needed = 0;
+	}
 }
 
 static void pll_locked_handler(struct work_struct * work)
@@ -764,6 +783,21 @@ static irqreturn_t ivm6303_pll_lock_ok_handler(int irq, void *_priv)
 	if (stat < 0)
 		dev_err(dev, "error clearing irq pll lock ok interrupt\n");
 	return IRQ_HANDLED;
+}
+
+/* Assumes regmap mutex taken */
+static void _try_tdm_apply(struct ivm6303_priv *priv)
+{
+	struct device *dev = &priv->i2c_client->dev;
+
+	priv->tdm_apply_needed = !_poll_pll_locked(priv);
+
+	if (priv->tdm_apply_needed) {
+		dev_dbg(dev, "%s: PLL not locked\n", __func__);
+		return;
+	}
+	dev_dbg(dev, "PLL locked, applying TDM conf\n");
+	_do_tdm_apply(priv);
 }
 
 static unsigned int ivm6303_component_read(struct snd_soc_component *component,
@@ -1028,12 +1062,12 @@ static int _set_sam_size(struct snd_soc_component *component,
 			 unsigned int samsize)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
-	int ret = 0, i;
+	int ret = 0, i, need_tdm_apply = 0;
 
 	switch (stream) {
 	case SNDRV_PCM_STREAM_CAPTURE:
 		/* TDM_CHxO_DL */
-		for (i = 0; i < 4; i++) {
+		for (i = 0; i < 4; i++, need_tdm_apply++) {
 			dev_dbg(component->dev,
 				"%s: writing reg %2x, mask = %2x, val = %2x",
 				__func__, IVM6303_TDM_SETTINGS(11 + 2*i),
@@ -1047,7 +1081,7 @@ static int _set_sam_size(struct snd_soc_component *component,
 		}
 		break;
 	case SNDRV_PCM_STREAM_PLAYBACK:
-		for (i = 0; i < 5; i++) {
+		for (i = 0; i < 5; i++, need_tdm_apply++) {
 			/* TDM_CHxI_DL */
 			dev_dbg(component->dev,
 				"%s: writing reg %2x, mask = %2x, val = %2x",
@@ -1065,6 +1099,8 @@ static int _set_sam_size(struct snd_soc_component *component,
 		dev_err(component->dev, "%s: invalid stream\n", __func__);
 		ret = -EINVAL;
 	}
+	if (need_tdm_apply)
+		_try_tdm_apply(priv);
 	return ret;
 }
 
