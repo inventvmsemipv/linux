@@ -1281,7 +1281,7 @@ static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 		goto err;
 	}
 
-	ret = regmap_update_bits(priv->regmap, 0x32, 0x7f,
+	ret = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(2), 0x7f,
 				 tdm_fsyn_sr | tdm_bclk_osr);
 err:
 	return ret;
