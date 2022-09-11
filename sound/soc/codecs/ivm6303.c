@@ -200,6 +200,9 @@ struct ivm6303_priv {
 	int			pll_locked_poll_attempts;
 	/* tdm_settings_1 register */
 	int			tdm_settings_1;
+	/* PLL settings */
+	unsigned long		pll_feedback_divider;
+	unsigned long		pll_input_divider;
 	struct regmap_irq_chip_data *irq_data;
 	enum ivm6303_section_type  playback_mode_fw_section;
 	struct ivm6303_fw_section fw_sections[IVM6303_N_SECTIONS];
@@ -842,6 +845,9 @@ static int ivm6303_set_bias_level(struct snd_soc_component *component,
 					__func__);
 			/* Forget about current value of tdm_settings_1 */
 			priv->tdm_settings_1 = -1;
+			/* Forget about current PLL settings */
+			priv->pll_input_divider = 0;
+			priv->pll_feedback_divider = 0;
 		}
 		break;
 	case SND_SOC_BIAS_OFF:
@@ -1224,7 +1230,12 @@ static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 	pll_feedback_divider = VCO_FREQ / refclk;
 	dev_dbg(component->dev, "feedback divider = %lu", pll_feedback_divider);
 
-	/* Disable PLL */
+	if ((pll_feedback_divider == priv->pll_feedback_divider) &&
+	    (pll_input_divider == priv->pll_input_divider)) {
+		dev_dbg(component->dev, "not updating pll settings\n");
+		goto pll_done;
+	}
+	/* Start updating PLL settings by disabling PLL */
 	ret = _disable_pll(component);
 	if (ret < 0) {
 		dev_err(component->dev, "error disabling pll");
@@ -1267,6 +1278,13 @@ static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 		goto err;
 	}
 
+	/*
+	 * Store current pll settings to avoid rewriting them later on
+	 * if not changed
+	 */
+	priv->pll_input_divider = pll_input_divider;
+	priv->pll_feedback_divider = pll_feedback_divider;
+
 	/* Restore original pll status */
 	ret = _restore_pll(component, pll_status);
 	if (ret < 0) {
@@ -1274,6 +1292,7 @@ static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 		goto err;
 	}
 
+pll_done:
 	tdm_fsyn_sr = ivm6303_fsyn[ratek];
 
 	if ((OSR(osr) < OSR_64) || (OSR(osr) > OSR_512)) {
