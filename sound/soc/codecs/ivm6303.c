@@ -40,6 +40,7 @@
 #define IVM6303_ENABLES_SETTINGS(n)	(0x14 + (n))
 /* ENABLES_SETTINGS_1 */
 # define PLL_EN				BIT(3)
+# define PLL_CLKMUX_EN			BIT(2)
 /* ENABLES_SETTINGS_2 */
 # define TDM_EN				BIT(0)
 /* ENABLES_SETTINGS_5 */
@@ -451,7 +452,7 @@ int playback_mode_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
 
 static const struct snd_soc_dapm_widget ivm6303_dapm_widgets[] = {
 	/* PLL */
-	SND_SOC_DAPM_SUPPLY("PLL", IVM6303_ENABLES_SETTINGS(1), 3, 0, NULL, 0),
+	SND_SOC_DAPM_SUPPLY("PLL", SND_SOC_NOPM, 0, 0, NULL, 0),
 	/* Analog Output */
 	SND_SOC_DAPM_OUTPUT("SPK"),
 	/* TDM INPUT (Playback) */
@@ -1161,47 +1162,17 @@ ivm6303_pll_input_div[MAX_FSYN_RATES][MAX_CHANNELS] = {
 #define PLL_POST_DIVIDER 2
 
 /* Assumes regmap mutex taken */
-static int _disable_pll(struct snd_soc_component *component)
+static int _set_pll_enable(struct ivm6303_priv *priv, int en)
 {
-	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
-	unsigned int v;
-	int ret, out;
-
-	ret = regmap_read(priv->regmap, IVM6303_ENABLES_SETTINGS(1), &v);
-	if (ret < 0) {
-		dev_err(component->dev, "error reading pll enable bit");
-		return ret;
-	}
-
-	out = v & PLL_EN;
-
-	if (!out)
-		/* Already disabled */
-		return out;
-	ret = regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(1),
-				 PLL_EN, 0);
-	if (ret < 0)
-		dev_err(component->dev, "error writing pll enable bit");
-	return ret < 0 ? ret : out;
-}
-
-/* Assumes regmap mutex taken */
-static int _restore_pll(struct snd_soc_component *component, int en)
-{
-	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
-	int ret;
-
-	ret = regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(1),
-				 PLL_EN, en);
-	if (ret < 0)
-		dev_err(component->dev, "error restoring pll enable bit");
-	return ret;
+	return regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(1),
+				  PLL_EN|PLL_CLKMUX_EN,
+				  en ? PLL_EN|PLL_CLKMUX_EN : 0);
 }
 
 /* Assumes regmap mutex taken */
 static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 {
-	int ret, ch_index, pll_status;
+	int ret, ch_index;
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 	unsigned long osr, rate, ratek, refclk, pll_input_divider,
 		pll_feedback_divider;
@@ -1236,12 +1207,11 @@ static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 		goto pll_done;
 	}
 	/* Start updating PLL settings by disabling PLL */
-	ret = _disable_pll(component);
+	ret = _set_pll_enable(priv, 0);
 	if (ret < 0) {
 		dev_err(component->dev, "error disabling pll");
 		goto err;
 	}
-	pll_status = ret;
 	/* Write post divider */
 	shift = PLL_POST_DIVIDER_SHIFT;
 	mask = PLL_POST_DIVIDER_MASK;
@@ -1285,8 +1255,8 @@ static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 	priv->pll_input_divider = pll_input_divider;
 	priv->pll_feedback_divider = pll_feedback_divider;
 
-	/* Restore original pll status */
-	ret = _restore_pll(component, pll_status);
+	/* Finally enable PLL */
+	ret = _set_pll_enable(priv, 1);
 	if (ret < 0) {
 		dev_err(component->dev, "error restoring pll status");
 		goto err;
