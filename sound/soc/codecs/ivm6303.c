@@ -45,6 +45,12 @@
 # define CP_EN				BIT(4)
 # define IVM6303_REFS_MASK		(REF_EN|REF_LDO4V_EN|CP_EN)
 
+# define EQ2_EN				BIT(2)
+# define ENV_TRACK_EN			(BIT(4)|BIT(5))
+# define BOP_EN				BIT(6)
+# define VBAT_EN			BIT(7)
+# define IVM6303_DSP_MASK		(EQ2_EN|ENV_TRACK_EN|BOP_EN|VBAT_EN)
+
 # define PLL_EN				BIT(3)
 # define PLL_CLKMUX_EN			BIT(2)
 /* ENABLES_SETTINGS_2 */
@@ -750,6 +756,14 @@ static int _set_references_enable(struct ivm6303_priv *priv, int en)
 				  en ? IVM6303_REFS_MASK : 0);
 }
 
+static int _set_dsp_enable(struct ivm6303_priv *priv, int en)
+{
+	return regmap_update_bits(priv->regmap,
+				  IVM6303_ENABLES_SETTINGS(2),
+				  IVM6303_DSP_MASK,
+				  en ? IVM6303_DSP_MASK : 0);
+}
+
 static void _turn_speaker_on(struct ivm6303_priv *priv)
 {
 	static const u8 force_intfb_vals[] = { 0x70, 0x60, };
@@ -791,6 +805,7 @@ static void _pll_locked_handler(struct ivm6303_priv *priv)
 		priv->tdm_apply_needed = 0;
 	}
 	_set_references_enable(priv, 1);
+	_set_dsp_enable(priv, 1);
 	_turn_speaker_on(priv);
 }
 
@@ -937,6 +952,10 @@ static int ivm6303_set_bias_level(struct snd_soc_component *component,
 			ret = _set_references_enable(priv, 0);
 			if (ret < 0)
 				dev_err(dev, "%s: error disabling references\n",
+					__func__);
+			ret = _set_dsp_enable(priv, 0);
+			if (ret < 0)
+				dev_err(dev, "%s: error disabling DSP\n",
 					__func__);
 		}
 		break;
