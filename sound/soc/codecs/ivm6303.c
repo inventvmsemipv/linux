@@ -43,6 +43,8 @@
 # define PLL_CLKMUX_EN			BIT(2)
 /* ENABLES_SETTINGS_2 */
 # define TDM_EN				BIT(0)
+/* Boost enable */
+# define BST_EN				BIT(5)
 /* ENABLES_SETTINGS_5 */
 # define SPK_EN				BIT(0)
 # define SPK_MUTE			BIT(1)
@@ -117,6 +119,8 @@
 
 #define IVM6303_PAGE_SELECTION		0xfe
 #define IVM6303_HW_REV			0xff
+
+#define IVM6303_FORCE_INTFB		0x110
 
 #define IVM6303_FORMATS (SNDRV_PCM_FMTBIT_S16_LE |	\
 			 SNDRV_PCM_FMTBIT_S24_LE |	\
@@ -462,7 +466,7 @@ static const struct snd_soc_dapm_widget ivm6303_dapm_widgets[] = {
 	/* I2S INPUT (Playback) */
 	SND_SOC_DAPM_AIF_IN("AIF I2S IN", "I2S Playback", 0,
 			    SND_SOC_NOPM, 0, 0),
-	SND_SOC_DAPM_PGA_E("CLASS-D", IVM6303_ENABLES_SETTINGS(5), 0, 0,
+	SND_SOC_DAPM_PGA_E("CLASS-D", SND_SOC_NOPM, 0, 0,
 			   playback_mode_control, 1,
 			   playback_mode_event,
 			   SND_SOC_DAPM_PRE_PMU|SND_SOC_DAPM_POST_PMD),
@@ -732,6 +736,36 @@ static void _do_tdm_apply(struct ivm6303_priv *priv)
 		dev_err(dev, "%s: could not apply TDM conf", __func__);
 }
 
+static void _turn_speaker_on(struct ivm6303_priv *priv)
+{
+	static const u8 force_intfb_vals[] = { 0x70, 0x60, };
+	static const u8 leave_intfb_vals[] = { 0x00, 0x00, };
+	int stat;
+
+	/* Force internal feedback */
+	stat = regmap_bulk_write(priv->regmap, IVM6303_FORCE_INTFB,
+				 force_intfb_vals,
+				 ARRAY_SIZE(force_intfb_vals));
+	if (stat < 0)
+		pr_err("Error forcing internal feedback\n");
+	/* Turn on speaker */
+	stat = regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(5),
+				  SPK_EN, SPK_EN);
+	if (stat < 0)
+		pr_err("Error enabling speaker\n");
+	/* Boost enable */
+	stat = regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(1),
+				  BST_EN, BST_EN);
+	if (stat < 0)
+		pr_err("Error enabling boost\n");
+	/* Finally leave internal feedback */
+	stat = regmap_bulk_write(priv->regmap, IVM6303_FORCE_INTFB,
+				 leave_intfb_vals,
+				 ARRAY_SIZE(leave_intfb_vals));
+	if (stat < 0)
+		pr_err("Error leaving internal feedback\n");
+}
+
 /* Assumes regmap mutex taken */
 static void _pll_locked_handler(struct ivm6303_priv *priv)
 {
@@ -742,6 +776,7 @@ static void _pll_locked_handler(struct ivm6303_priv *priv)
 		_do_tdm_apply(priv);
 		priv->tdm_apply_needed = 0;
 	}
+	_turn_speaker_on(priv);
 }
 
 static void pll_locked_handler(struct work_struct * work)
