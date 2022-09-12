@@ -39,6 +39,12 @@
 #define IVM6303_SOFTWARE_RESET		0x01
 #define IVM6303_ENABLES_SETTINGS(n)	(0x14 + (n))
 /* ENABLES_SETTINGS_1 */
+# define REF_EN				BIT(0)
+# define REF_LDO4V_EN			BIT(1)
+/* Charge pump enable */
+# define CP_EN				BIT(4)
+# define IVM6303_REFS_MASK		(REF_EN|REF_LDO4V_EN|CP_EN)
+
 # define PLL_EN				BIT(3)
 # define PLL_CLKMUX_EN			BIT(2)
 /* ENABLES_SETTINGS_2 */
@@ -736,6 +742,14 @@ static void _do_tdm_apply(struct ivm6303_priv *priv)
 		dev_err(dev, "%s: could not apply TDM conf", __func__);
 }
 
+static int _set_references_enable(struct ivm6303_priv *priv, int en)
+{
+	return regmap_update_bits(priv->regmap,
+				  IVM6303_ENABLES_SETTINGS(1),
+				  IVM6303_REFS_MASK,
+				  en ? IVM6303_REFS_MASK : 0);
+}
+
 static void _turn_speaker_on(struct ivm6303_priv *priv)
 {
 	static const u8 force_intfb_vals[] = { 0x70, 0x60, };
@@ -776,6 +790,7 @@ static void _pll_locked_handler(struct ivm6303_priv *priv)
 		_do_tdm_apply(priv);
 		priv->tdm_apply_needed = 0;
 	}
+	_set_references_enable(priv, 1);
 	_turn_speaker_on(priv);
 }
 
@@ -918,6 +933,11 @@ static int ivm6303_set_bias_level(struct snd_soc_component *component,
 			/* Forget about current PLL settings */
 			priv->pll_input_divider = 0;
 			priv->pll_feedback_divider = 0;
+			/* Disable references */
+			ret = _set_references_enable(priv, 0);
+			if (ret < 0)
+				dev_err(dev, "%s: error disabling references\n",
+					__func__);
 		}
 		break;
 	case SND_SOC_BIAS_OFF:
