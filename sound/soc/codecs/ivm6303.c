@@ -1152,7 +1152,7 @@ static int _set_dsp_enable(struct ivm6303_priv *priv, int en)
 				  en ? IVM6303_DSP_MASK : 0);
 }
 
-static void _turn_speaker_on(struct ivm6303_priv *priv)
+static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 {
 	static const u8 force_intfb_vals[] = { 0x70, 0x60, };
 	static const u8 leave_intfb_vals[] = { 0x00, 0x00, };
@@ -1166,16 +1166,16 @@ static void _turn_speaker_on(struct ivm6303_priv *priv)
 		pr_err("Error forcing internal feedback\n");
 	/* Turn on speaker */
 	stat = regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(5),
-				  SPK_EN, SPK_EN);
+				  SPK_EN, en ? SPK_EN : 0);
 	if (stat < 0)
 		pr_err("Error enabling speaker\n");
 	/* Boost enable */
 	stat = regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(1),
-				  BST_EN, BST_EN);
+				  BST_EN, en ? BST_EN : 0);
 	if (stat < 0)
 		pr_err("Error enabling boost\n");
 	/* Do autocal if needed */
-	if (!priv->autocal_done) {
+	if (en && !priv->autocal_done) {
 		stat = _do_autocal(priv);
 		if (!stat)
 			priv->autocal_done = 1;
@@ -1186,6 +1186,11 @@ static void _turn_speaker_on(struct ivm6303_priv *priv)
 				 ARRAY_SIZE(leave_intfb_vals));
 	if (stat < 0)
 		pr_err("Error leaving internal feedback\n");
+}
+
+static void _turn_speaker_on(struct ivm6303_priv *priv)
+{
+	_set_speaker_enable(priv, 1);
 }
 
 /* Assumes regmap mutex taken */
