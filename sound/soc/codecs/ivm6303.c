@@ -197,12 +197,9 @@ struct ivm6303_priv {
 	/* Total number of stream slots */
 	int			slots;
 	int			slot_width;
-	int			i2s;
-	int			fsync_edge;
-	int			delay;
-	int			inverted_fsync;
-	int			inverted_bclk;
 	int			pll_locked_poll_attempts;
+	/* tdm_settings_1 register */
+	int			tdm_settings_1;
 	struct regmap_irq_chip_data *irq_data;
 	enum ivm6303_section_type  playback_mode_fw_section;
 	struct ivm6303_fw_section fw_sections[IVM6303_N_SECTIONS];
@@ -456,20 +453,20 @@ static const struct snd_soc_dapm_widget ivm6303_dapm_widgets[] = {
 	SND_SOC_DAPM_OUTPUT("SPK"),
 	/* TDM INPUT (Playback) */
 	SND_SOC_DAPM_AIF_IN("AIF TDM IN", "TDM Playback", 0,
-			    IVM6303_ENABLES_SETTINGS(2), 0, 0),
+			    SND_SOC_NOPM, 0, 0),
 	/* I2S INPUT (Playback) */
 	SND_SOC_DAPM_AIF_IN("AIF I2S IN", "I2S Playback", 0,
-			    IVM6303_ENABLES_SETTINGS(2), 0, 0),
+			    SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_PGA_E("CLASS-D", IVM6303_ENABLES_SETTINGS(5), 0, 0,
 			   playback_mode_control, 1,
 			   playback_mode_event,
 			   SND_SOC_DAPM_PRE_PMU|SND_SOC_DAPM_POST_PMD),
 	SND_SOC_DAPM_AIF_OUT("AIF CH1-2 I2S OUT", "I2S Capture", 0,
-			     IVM6303_ENABLES_SETTINGS(2), 0, 0),
+			     SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("AIF CH1-2 TDM OUT", "TDM Capture", 0,
-			     IVM6303_ENABLES_SETTINGS(2), 0, 0),
+			     SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("AIF CH3-4 TDM OUT", "TDM Capture", 0,
-			     IVM6303_ENABLES_SETTINGS(2), 0, 0),
+			     SND_SOC_NOPM, 0, 0),
 };
 
 static const struct snd_soc_dapm_route ivm6303_dapm_routes[] = {
@@ -721,24 +718,7 @@ err:
 /* Assumes regmap lock taken */
 static void _tdm_apply_handler(struct ivm6303_priv *priv)
 {
-	int stat;
-	unsigned int v = 0;
-
-	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_APPLY_CONF,
-				  DO_APPLY_CONF, DO_APPLY_CONF);
-	if (stat < 0)
-		pr_err("%s: error setting tdm config\n", __func__);
-	udelay(1000);
-	if (priv->delay)
-		v |= TDM_DELAY_MODE;
-	if (priv->fsync_edge)
-		v |= TDM_FSYN_POLARITY;
-	if (priv->inverted_bclk)
-		v |= TDM_BCLK_POLARITY;
-	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(1),
-				  TDM_SETTINGS_MASK, v);
-	if (stat < 0)
-		pr_err("%s: error setting tdm config\n", __func__);
+	/* TO BE FILLED IN WITH CORRECT SPEAKER ON SEQUENCE */
 }
 
 static void tdm_apply_handler(struct work_struct * work)
@@ -815,6 +795,27 @@ static int ivm6303_component_write(struct snd_soc_component *component,
 	return ret;
 }
 
+/* Assumes regmap mutex taken */
+static int _set_tdm_enable(struct ivm6303_priv *priv, int en)
+{
+	return regmap_update_bits(priv->regmap,
+				  IVM6303_ENABLES_SETTINGS(2),
+				  TDM_EN, en ? TDM_EN : 0);
+}
+
+static int set_tdm_enable(struct ivm6303_priv *priv, int en)
+{
+	int ret;
+
+	mutex_lock(&priv->regmap_mutex);
+	ret = _set_tdm_enable(priv, en);
+	mutex_unlock(&priv->regmap_mutex);
+	if (ret < 0)
+		dev_err(&priv->i2c_client->dev,
+			"%s, error setting tdm en (%d)\n", __func__, ret);
+	return ret;
+}
+
 static int ivm6303_set_bias_level(struct snd_soc_component *component,
 				  enum snd_soc_bias_level level)
 {
@@ -822,6 +823,7 @@ static int ivm6303_set_bias_level(struct snd_soc_component *component,
 	struct device *dev = &priv->i2c_client->dev;
 	const enum snd_soc_bias_level prev_level =
 		snd_soc_component_get_bias_level(component);
+	int ret = 0;
 
 	dev_dbg(dev, "%s: level = %d, prev_level = %d\n", __func__, level,
 		prev_level);
@@ -832,13 +834,22 @@ static int ivm6303_set_bias_level(struct snd_soc_component *component,
 	case SND_SOC_BIAS_STANDBY:
 		if (prev_level == SND_SOC_BIAS_OFF)
 			run_fw_section(component, IVM6303_BIAS_OFF_TO_STANDBY);
+		if (prev_level == SND_SOC_BIAS_PREPARE) {
+			/* Disable TDM */
+			ret = set_tdm_enable(priv, 0);
+			if (ret < 0)
+				dev_err(dev, "%s: error disabling TDM\n",
+					__func__);
+			/* Forget about current value of tdm_settings_1 */
+			priv->tdm_settings_1 = -1;
+		}
 		break;
 	case SND_SOC_BIAS_OFF:
 		if (prev_level == SND_SOC_BIAS_STANDBY)
 			run_fw_section(component, IVM6303_BIAS_STANDBY_TO_OFF);
 		break;
 	}
-	return 0;
+	return ret;
 }
 
 static int ivm6303_component_probe(struct snd_soc_component *component)
@@ -1372,24 +1383,25 @@ err:
 	return ret;
 }
 
-/* Doesn't actually write to registers */
-static int set_protocol(struct snd_soc_dai *dai, unsigned int fmt)
+/* Assumes regmap mutex taken */
+static int _set_protocol(struct snd_soc_dai *dai, unsigned int fmt)
 {
 	struct snd_soc_component *component = dai->component;
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int i2s, delay, fsync_edge, inverted_bclk, inverted_fsync, ret;
+	unsigned int v = 0;
 
-	priv->i2s = priv->delay = priv->inverted_fsync =
-		priv->fsync_edge = priv->inverted_bclk = 0;
+	i2s = delay = inverted_fsync = fsync_edge = inverted_bclk = 0;
 
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_IB_IF:
-		priv->inverted_bclk = 1;
-		/* FALLTHROUGH */
+		inverted_bclk = 1;
+		fallthrough;
 	case SND_SOC_DAIFMT_NB_IF:
-		priv->inverted_fsync = 1;
+		inverted_fsync = 1;
 		break;
 	case SND_SOC_DAIFMT_IB_NF:
-		priv->inverted_bclk = 1;
+		inverted_bclk = 1;
 		break;
 	default:
 		break;
@@ -1397,11 +1409,11 @@ static int set_protocol(struct snd_soc_dai *dai, unsigned int fmt)
 
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
-		priv->i2s = 1;
-		priv->delay = 1;
+		i2s = 1;
+		delay = 1;
 		break;
 	case SND_SOC_DAIFMT_DSP_A:
-		priv->delay = 1;
+		delay = 1;
 		break;
 	case SND_SOC_DAIFMT_DSP_B:
 		break;
@@ -1420,15 +1432,36 @@ static int set_protocol(struct snd_soc_dai *dai, unsigned int fmt)
 	 *  1   |         0         |      0
 	 *  1   |         1         |      1
 	 */
-	priv->fsync_edge = (priv->i2s == priv->inverted_fsync);
+	fsync_edge = (i2s == inverted_fsync);
 
-	return 0;
+	if (delay)
+		v |= TDM_DELAY_MODE;
+	if (fsync_edge)
+		v |= TDM_FSYN_POLARITY;
+	if (inverted_bclk)
+		v |= TDM_BCLK_POLARITY;
+
+	if (v == priv->tdm_settings_1) {
+		dev_dbg(component->dev, "tdm settings 1 already setup\n");
+		return 0;
+	}
+
+	ret = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(1),
+				 TDM_SETTINGS_MASK, v);
+	if (ret < 0) {
+		dev_err(component->dev, "error writing to TDM_SETTINGS(1)");
+		return ret;
+	}
+	priv->tdm_settings_1 = v;
+	/* Finally enable TDM */
+	return _set_tdm_enable(priv, 1);
 }
 
 static int ivm6303_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 {
 	int ret;
 	struct snd_soc_component *component = dai->component;
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 
 	dev_dbg(component->dev, "%s(): fmt = 0x%08x\n", __func__, fmt);
 
@@ -1454,7 +1487,9 @@ static int ivm6303_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 			__func__, fmt & SND_SOC_DAIFMT_CLOCK_MASK);
 		return -EINVAL;
 	}
-	ret= set_protocol(dai, fmt);
+	mutex_lock(&priv->regmap_mutex);
+	ret = _set_protocol(dai, fmt);
+	mutex_unlock(&priv->regmap_mutex);
 	if (ret < 0)
 		return ret;
 	return 0;
@@ -1879,6 +1914,7 @@ static int ivm6303_probe(struct i2c_client *client)
 	mutex_init(&priv->regmap_mutex);
 
 	priv->i2c_client = client;
+	priv->tdm_settings_1 = -1;
 
 	priv->regmap = devm_regmap_init_i2c(priv->i2c_client, &regmap_config);
 	if (IS_ERR(priv->regmap)) {
