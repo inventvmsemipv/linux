@@ -1193,6 +1193,11 @@ static void _turn_speaker_on(struct ivm6303_priv *priv)
 	_set_speaker_enable(priv, 1);
 }
 
+static void _turn_speaker_off(struct ivm6303_priv *priv)
+{
+	_set_speaker_enable(priv, 0);
+}
+
 /* Assumes regmap mutex taken */
 static void _pll_locked_handler(struct ivm6303_priv *priv)
 {
@@ -1337,6 +1342,8 @@ static int ivm6303_set_bias_level(struct snd_soc_component *component,
 		if (prev_level == SND_SOC_BIAS_OFF)
 			run_fw_section(component, IVM6303_BIAS_OFF_TO_STANDBY);
 		if (prev_level == SND_SOC_BIAS_PREPARE) {
+			/* Turn speaker off */
+			_turn_speaker_off(priv);
 			/* Disable TDM */
 			ret = set_tdm_enable(priv, 0);
 			if (ret < 0)
