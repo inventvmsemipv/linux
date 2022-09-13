@@ -319,6 +319,8 @@ struct ivm6303_priv {
 	atomic_t		running_section;
 	int			tdm_apply_needed;
 	int			autocal_done;
+#define WAITING_FOR_PLL_LOCK 0
+	unsigned long		flags;
 };
 
 static long sign_extend(unsigned long v, int nbits)
@@ -1247,6 +1249,7 @@ static void _pll_locked_handler(struct ivm6303_priv *priv)
 {
 	struct device *dev = &priv->i2c_client->dev;
 
+	clear_bit(WAITING_FOR_PLL_LOCK, &priv->flags);
 	if (priv->tdm_apply_needed) {
 		dev_dbg(dev, "%s: doing tdm apply\n", __func__);
 		_do_tdm_apply(priv);
@@ -2255,12 +2258,18 @@ static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 	switch(cmd) {
 	case SNDRV_PCM_TRIGGER_START:
 		dev_dbg(component->dev, "%s, start trigger cmd\n", __func__);
-		if (priv->i2c_client->irq <= 0) {
-			priv->pll_locked_poll_attempts = 0;
-			ret = queue_delayed_work(priv->wq,
-						 &priv->pll_locked_work,
-						 PLL_LOCKED_POLL_PERIOD);
-		}
+		if (priv->i2c_client->irq <= 0 &&
+		    substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+			if (!test_and_set_bit(WAITING_FOR_PLL_LOCK,
+					      &priv->flags)) {
+				priv->pll_locked_poll_attempts = 0;
+				ret = queue_delayed_work(priv->wq,
+							 &priv->pll_locked_work,
+							 PLL_LOCKED_POLL_PERIOD);
+			}
+		break;
+	case SNDRV_PCM_TRIGGER_STOP:
+		clear_bit(WAITING_FOR_PLL_LOCK, &priv->flags);
 		break;
 	default:
 		break;
