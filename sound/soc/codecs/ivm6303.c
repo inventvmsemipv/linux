@@ -132,6 +132,11 @@
 #define PLL_INPUT_DIVIDER_SHIFT		4
 
 #define IVM6303_VISENSE_SETTINGS(x)	(0xa0 + ((x) - 1))
+/* IVM6303_VISENSE_SETTINGS(1) */
+# define VIS_DIG_EN_V			BIT(0)
+# define VIS_DIG_EN_I			BIT(1)
+# define VIS_DIG_EN_MASK		(VIS_DIG_EN_V|VIS_DIG_EN_I)
+# define VIS_DIG_EN_SHIFT		0
 
 #define IVM6303_CAL_SETTINGS(x)		((x - 1) + 0xe0)
 /* IVM6303_CAL_SETTINGS(3) */
@@ -643,9 +648,43 @@ int playback_mode_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
 	return 0;
 }
 
+int adc_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
+{
+	struct snd_soc_component *component =
+		snd_soc_dapm_to_component(w->dapm);
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int ret = 0, on = 0;
+
+	pr_debug("%s: event %d, stream %s\n", __func__, e, w->sname);
+
+	switch(e) {
+	case SND_SOC_DAPM_PRE_PMU:
+		/* Enable Vs/Is */
+		on = 1;
+		break;
+	case SND_SOC_DAPM_POST_PMD:
+		/* Disable Vs/Is */
+		on = 0;
+		break;
+	default:
+		dev_err(component->dev, "%s: unexpected event %d\n",
+			__func__, e);
+		ret = -EINVAL;
+	}
+	if (!ret) {
+		ret = regmap_update_bits(priv->regmap,
+					 IVM6303_VISENSE_SETTINGS(1),
+					 VIS_DIG_EN_MASK,
+					 on ? VIS_DIG_EN_MASK : 0);
+		if (ret < 0)
+			dev_err(component->dev, "error turning Vs/Is %s\n",
+				on ? "On" : "Off");
+	}
+	pr_debug("%s returns\n", __func__);
+	return ret;
+}
+
 static const struct snd_soc_dapm_widget ivm6303_dapm_widgets[] = {
-	/* PLL */
-	SND_SOC_DAPM_SUPPLY("PLL", SND_SOC_NOPM, 0, 0, NULL, 0),
 	/* Analog Output */
 	SND_SOC_DAPM_OUTPUT("SPK"),
 	/* TDM INPUT (Playback) */
@@ -658,6 +697,11 @@ static const struct snd_soc_dapm_widget ivm6303_dapm_widgets[] = {
 			   playback_mode_control, 1,
 			   playback_mode_event,
 			   SND_SOC_DAPM_PRE_PMU|SND_SOC_DAPM_POST_PMD),
+	/* Analog input */
+	SND_SOC_DAPM_INPUT("VSIS-IN"),
+	SND_SOC_DAPM_ADC_E("VSIS-ADC", NULL, SND_SOC_NOPM, 0, 0,
+			   adc_event,
+			   SND_SOC_DAPM_PRE_PMU|SND_SOC_DAPM_POST_PMD),
 	SND_SOC_DAPM_AIF_OUT("AIF CH1-2 I2S OUT", "I2S Capture", 0,
 			     SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("AIF CH1-2 TDM OUT", "TDM Capture", 0,
@@ -668,14 +712,14 @@ static const struct snd_soc_dapm_widget ivm6303_dapm_widgets[] = {
 
 static const struct snd_soc_dapm_route ivm6303_dapm_routes[] = {
 	/* sink | control | source */
-	{"AIF TDM IN", NULL, "PLL" },
-	{"AIF I2S IN", NULL, "PLL" },
 	{"CLASS-D", NULL, "AIF TDM IN"},
 	{"CLASS-D", NULL, "AIF I2S IN"},
 	{"SPK", NULL, "CLASS-D"},
-	{"AIF CH1-2 I2S OUT", NULL, "PLL"},
-	{"AIF CH1-2 TDM OUT", NULL, "PLL"},
-	{"AIF CH3-4 TDM OUT", NULL, "PLL"},
+	{"VSIS-ADC", NULL, "VSIS-IN"},
+	{"VSIS-ADC", NULL, "VSIS-IN"},
+	{"AIF CH1-2 I2S OUT", NULL, "VSIS-ADC"},
+	{"AIF CH1-2 TDM OUT", NULL, "VSIS-ADC"},
+	{"AIF CH3-4 TDM OUT", NULL, "VSIS-ADC"},
 };
 
 static int check_hw_rev(struct snd_soc_component *component)
