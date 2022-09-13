@@ -1135,12 +1135,12 @@ static int _do_autocal(struct ivm6303_priv *priv)
 	ret = _vsense_check_loop(priv, az_avg, gain_100_offs_comp_v);
 pdown:
 	/*
-	 * all done, restore Vs/Is settings (with 0xa0 forced to 0)
+	 * all done, restore Vs/Is settings
 	 * and leave calibration internal feedback
 	 * Best effort, no error check on return here
 	 */
-	/* Force register 0xa0 to 0 */
-	vis_settings_saved_vals &= ~0xff;
+	dev_dbg(dev, "Autocal: restoring vis settings 0x%08x\n",
+		(unsigned int)vis_settings_saved_vals);
 	_ret = _ivm6303_mfr_write(priv, IVM6303_MFR_VIS_SETTINGS,
 				  vis_settings_saved_vals);
 	if (_ret < 0 && ret >= 0)
