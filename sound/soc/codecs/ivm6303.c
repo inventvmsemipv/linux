@@ -1133,8 +1133,6 @@ static int _do_autocal(struct ivm6303_priv *priv)
 		goto pdown;
 	/* Check new vsense after correction */
 	ret = _vsense_check_loop(priv, az_avg, gain_100_offs_comp_v);
-	if (ret < 0)
-		goto end;
 pdown:
 	/*
 	 * all done, restore Vs/Is settings (with 0xa0 forced to 0)
