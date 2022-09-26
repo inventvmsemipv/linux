@@ -93,7 +93,11 @@
 #define IVM6303_STATUS(n)		(0x09 + ((n) - 1))
 # define PLL_LOCK_OK			BIT(7)
 
+# define IVM6303_SEQUENCER_STATUS(n)	(0x1b + ((n) - 1))
+
+#define IVM6303_MEAS_RANGE_START	0x20
 #define IVM6303_VSENSE			0x21
+#define IVM6303_MEAS_RANGE_END		0x2f
 
 #define IVM6303_TDM_APPLY_CONF		0x30
 # define DO_APPLY_CONF			BIT(0)
@@ -123,6 +127,8 @@
 # define I_DL_SHIFT			6
 # define I_DL_MASK			(0x3 << I_DL_SHIFT)
 
+#define IVM6303_VOLUME_STATUS(x)	((x) + 0x6c)
+
 #define IVM6303_PLL_SETTINGS(x)		((x) + 0x80)
 #define PLL_POST_DIVIDER_MASK		0x0f
 #define PLL_POST_DIVIDER_SHIFT		4
@@ -131,12 +137,18 @@
 #define PLL_INPUT_DIVIDER_MASK		0x0f
 #define PLL_INPUT_DIVIDER_SHIFT		4
 
+#define IVM6303_PROTECTION_REG(x)	(0x9a + ((x) - 1))
+
 #define IVM6303_VISENSE_SETTINGS(x)	(0xa0 + ((x) - 1))
 /* IVM6303_VISENSE_SETTINGS(1) */
 # define VIS_DIG_EN_V			BIT(0)
 # define VIS_DIG_EN_I			BIT(1)
 # define VIS_DIG_EN_MASK		(VIS_DIG_EN_V|VIS_DIG_EN_I)
 # define VIS_DIG_EN_SHIFT		0
+
+#define IVM6303_DIG_BOOST_STATUS(x)	(((x) - 1) + 0xcd)
+
+#define IVM6303_SAR_SETTINGS(x)		(((x) - 1) + 0xd0)
 
 #define IVM6303_CAL_SETTINGS(x)		((x - 1) + 0xe0)
 /* IVM6303_CAL_SETTINGS(3) */
@@ -146,8 +158,18 @@
 
 #define IVM6303_CAL_STATUS(x)		((x - 1) + 0xea)
 
+#define IVM6303_CLIPPING_RANGE_START	0xf0
+#define IVM6303_CLIPPING_RANGE_END	0xf7
+
+#define IVM6303_PAD_SETTINGS		0xfc
+
 #define IVM6303_PAGE_SELECTION		0xfe
 #define IVM6303_HW_REV			0xff
+
+#define IVM6303_IO_TEST_SETTINGS(x)	(((x) - 1) + 0x100)
+
+#define IVM6303_DIG_TEST_SETTINGS(x)    \
+	(((x) - 1) + (((x) <= 2) ? 0x103 : 0x106))
 
 #define IVM6303_FORCE_INTFB		0x110
 
@@ -158,6 +180,22 @@
 
 #define IVM6303_TEST_DIG1		0x117
 # define SEQ_CAL_EN_M			BIT(4)
+
+#define IVM6303_EQ_SETTINGS		0x140
+
+#define IVM6303_EQ_APPLY		0x155
+
+#define IVM6303_SP_RANGE_START		0x156
+#define IVM6303_SP_READ_RANGE_START	IVM6303_SP_RANGE_START
+#define IVM6303_SP_READ_RANGE_END	0x159
+#define IVM6303_SP_RANGE_END		0x15f
+
+#define IVM6303_DRC_RO_RANGE_START	0x177
+#define IVM6303_DRC_RO_RANGE_END	0x17f
+
+#define IVM6303_DTC_STATUS(x)		(((x) - 1) + 0x19a)
+
+#define IVM6303_OTP_CONTROL(x)		(((x) - 1) + 0x1d0)
 
 #define IVM6303_GAIN_000_OFFS_COMP_HI	0x1d2
 /* Reg 0x1d3 is shared */
@@ -176,6 +214,8 @@
 #define IVM6303_GAIN_101_OFFS_COMP_LO	0x1da
 
 #define IVM6303_GAIN_OFFS_INTFB_COMP(n)	((n) + 0x1db)
+
+#define IVM6303_TEST_DEVICE_INFO	0x1ff
 
 #define IVM6303_FORMATS (SNDRV_PCM_FMTBIT_S16_LE |	\
 			 SNDRV_PCM_FMTBIT_S24_LE |	\
@@ -1558,12 +1598,112 @@ static bool ivm6303_readable_register(struct device *dev, unsigned int reg)
 static bool ivm6303_writeable_register(struct device *dev,
 				       unsigned int reg)
 {
+	if (reg >= IVM6303_MEAS_RANGE_START &&
+	    reg <= IVM6303_MEAS_RANGE_END)
+		return false;
+
+	if (reg >= IVM6303_CAL_STATUS(1) &&
+	    reg <= IVM6303_CAL_STATUS(6))
+		return false;
+
+	if (reg >= IVM6303_SP_READ_RANGE_START &&
+	    reg <= IVM6303_SP_READ_RANGE_END)
+		return false;
+
+	if (reg >= IVM6303_DRC_RO_RANGE_START &&
+	    reg <= IVM6303_DRC_RO_RANGE_END)
+		return false;
+
+	if (reg >= IVM6303_DTC_STATUS(1) &&
+	    reg <= IVM6303_DTC_STATUS(6))
+		return false;
+
+	switch(reg) {
+	case IVM6303_STATUS(1):
+	case IVM6303_STATUS(2):
+	case IVM6303_STATUS(3):
+	case IVM6303_STATUS(4):
+	case IVM6303_SEQUENCER_STATUS(1):
+	case IVM6303_SEQUENCER_STATUS(2):
+	case IVM6303_SEQUENCER_STATUS(3):
+	case IVM6303_SEQUENCER_STATUS(4):
+	case IVM6303_VOLUME_STATUS(0):
+	case IVM6303_VOLUME_STATUS(1):
+	case IVM6303_VOLUME_STATUS(2):
+	case IVM6303_VOLUME_STATUS(3):
+	case IVM6303_DIG_BOOST_STATUS(1):
+	case IVM6303_DIG_BOOST_STATUS(2):
+	case IVM6303_DIG_BOOST_STATUS(3):
+	case IVM6303_HW_REV:
+	case IVM6303_IO_TEST_SETTINGS(3):
+	case IVM6303_TEST_DEVICE_INFO:
+		return false;
+
+	}
 	return (reg <= 0x1ff);
 }
 
 static bool ivm6303_volatile_register(struct device *dev, unsigned int reg)
 {
-	return reg <= 0xff;
+	if (reg >= IVM6303_MEAS_RANGE_START &&
+	    reg <= IVM6303_MEAS_RANGE_END)
+		return true;
+
+	if (reg >= IVM6303_CLIPPING_RANGE_START &&
+	    reg <= IVM6303_CLIPPING_RANGE_END)
+		return true;
+
+	if (reg >= IVM6303_CAL_STATUS(1) &&
+	    reg <= IVM6303_CAL_STATUS(6))
+		return true;
+
+	if (reg >= IVM6303_SP_RANGE_START &&
+	    reg <= IVM6303_SP_RANGE_END)
+		return true;
+
+	if (reg >= IVM6303_DRC_RO_RANGE_START &&
+	    reg <= IVM6303_DRC_RO_RANGE_END)
+		return true;
+
+	if (reg >= IVM6303_DTC_STATUS(1) &&
+	    reg <= IVM6303_DTC_STATUS(6))
+		return true;
+
+	switch(reg) {
+	case IVM6303_IRQ_STATUS(1):
+	case IVM6303_IRQ_STATUS(2):
+	case IVM6303_IRQ_STATUS(3):
+	case IVM6303_STATUS(1):
+	case IVM6303_STATUS(2):
+	case IVM6303_STATUS(3):
+	case IVM6303_STATUS(4):
+	case IVM6303_ENABLES_SETTINGS(5):
+	case IVM6303_SEQUENCER_STATUS(1):
+	case IVM6303_SEQUENCER_STATUS(2):
+	case IVM6303_SEQUENCER_STATUS(3):
+	case IVM6303_SEQUENCER_STATUS(4):
+	case IVM6303_TDM_APPLY_CONF:
+	case IVM6303_VOLUME_STATUS(0):
+	case IVM6303_VOLUME_STATUS(1):
+	case IVM6303_VOLUME_STATUS(2):
+	case IVM6303_VOLUME_STATUS(3):
+	case IVM6303_PROTECTION_REG(4):
+	case IVM6303_DIG_BOOST_STATUS(1):
+	case IVM6303_DIG_BOOST_STATUS(2):
+	case IVM6303_DIG_BOOST_STATUS(3):
+	case IVM6303_SAR_SETTINGS(11):
+	case IVM6303_CAL_SETTINGS(6):
+	case IVM6303_PAD_SETTINGS:
+	case IVM6303_IO_TEST_SETTINGS(3):
+	case IVM6303_DIG_TEST_SETTINGS(6):
+	case IVM6303_EQ_SETTINGS:
+	case IVM6303_EQ_APPLY:
+	case IVM6303_OTP_CONTROL(1):
+		return true;
+	default:
+		break;
+	}
+	return false;
 }
 
 static const struct regmap_config regmap_config = {
@@ -1576,7 +1716,7 @@ static const struct regmap_config regmap_config = {
 	.writeable_reg = ivm6303_writeable_register,
 	.volatile_reg = ivm6303_volatile_register,
 
-	.cache_type = REGCACHE_NONE,
+	.cache_type = REGCACHE_RBTREE,
 	.disable_locking = 1,
 };
 
