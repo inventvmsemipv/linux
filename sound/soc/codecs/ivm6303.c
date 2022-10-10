@@ -337,6 +337,7 @@ static const struct ivm6303_mfr *ivm6303_mfrs[] = {
 struct ivm6303_priv {
 	struct workqueue_struct	*wq;
 	struct delayed_work	pll_locked_work;
+	struct work_struct	speaker_deferred_work;
 	struct work_struct	fw_exec_work;
 	struct completion	fw_section_completion;
 	struct i2c_client	*i2c_client;
@@ -360,6 +361,7 @@ struct ivm6303_priv {
 	int			tdm_apply_needed;
 	int			autocal_done;
 #define WAITING_FOR_PLL_LOCK 0
+#define WAITING_FOR_SPEAKER_OFF 1
 	unsigned long		flags;
 };
 
@@ -1354,6 +1356,19 @@ static void _try_tdm_apply(struct ivm6303_priv *priv)
 	_do_tdm_apply(priv);
 }
 
+static void speaker_deferred_handler(struct work_struct * work)
+{
+	struct ivm6303_priv *priv = container_of(work, struct ivm6303_priv,
+						 speaker_deferred_work);
+	struct device *dev = &priv->i2c_client->dev;
+
+	if (!test_and_clear_bit(WAITING_FOR_SPEAKER_OFF, &priv->flags))
+		return;
+	mutex_lock(&priv->regmap_mutex);
+	_turn_speaker_off(priv);
+	mutex_unlock(&priv->regmap_mutex);
+}
+
 static unsigned int ivm6303_component_read(struct snd_soc_component *component,
 					   unsigned int reg)
 {
@@ -1427,8 +1442,6 @@ static int ivm6303_set_bias_level(struct snd_soc_component *component,
 		if (prev_level == SND_SOC_BIAS_OFF)
 			run_fw_section(component, IVM6303_BIAS_OFF_TO_STANDBY);
 		if (prev_level == SND_SOC_BIAS_PREPARE) {
-			/* Turn speaker off */
-			_turn_speaker_off(priv);
 			/* Disable TDM */
 			ret = set_tdm_enable(priv, 0);
 			if (ret < 0)
@@ -1479,6 +1492,7 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 	}
 	INIT_DELAYED_WORK(&priv->pll_locked_work, pll_locked_handler);
 	INIT_WORK(&priv->fw_exec_work, fw_exec_handler);
+	INIT_WORK(&priv->speaker_deferred_work, speaker_deferred_handler);
 	return run_fw_section_sync(component, IVM6303_PROBE_WRITES);
 }
 
@@ -2404,9 +2418,22 @@ static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 				ret = queue_delayed_work(priv->wq,
 							 &priv->pll_locked_work,
 							 PLL_LOCKED_POLL_PERIOD);
+				clear_bit(WAITING_FOR_SPEAKER_OFF,
+					  &priv->flags);
 			}
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
+		/*
+		 * Turn speaker off, if playback finished
+		 * We are in atomic context, can't use regmap here
+		 * Just queue for later execution
+		 */
+		dev_dbg(component->dev, "%s, stop trigger cmd\n", __func__);
+		if  ((substream->stream == SNDRV_PCM_STREAM_PLAYBACK) &&
+		     !test_and_set_bit(WAITING_FOR_SPEAKER_OFF,
+				       &priv->flags))
+			ret = queue_work(priv->wq,
+					 &priv->speaker_deferred_work);
 		clear_bit(WAITING_FOR_PLL_LOCK, &priv->flags);
 		break;
 	default:
