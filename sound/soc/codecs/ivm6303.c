@@ -362,6 +362,7 @@ struct ivm6303_priv {
 	int			autocal_done;
 #define WAITING_FOR_PLL_LOCK 0
 #define WAITING_FOR_SPEAKER_OFF 1
+#define WAITING_FOR_SPEAKER_ON 2
 	unsigned long		flags;
 };
 
@@ -1297,7 +1298,8 @@ static void _pll_locked_handler(struct ivm6303_priv *priv)
 	}
 	_set_references_enable(priv, 1);
 	_set_dsp_enable(priv, 1);
-	_turn_speaker_on(priv);
+	if (test_and_clear_bit(WAITING_FOR_SPEAKER_ON, &priv->flags))
+		_turn_speaker_on(priv);
 }
 
 static void pll_locked_handler(struct work_struct * work)
@@ -1360,7 +1362,6 @@ static void speaker_deferred_handler(struct work_struct * work)
 {
 	struct ivm6303_priv *priv = container_of(work, struct ivm6303_priv,
 						 speaker_deferred_work);
-	struct device *dev = &priv->i2c_client->dev;
 
 	if (!test_and_clear_bit(WAITING_FOR_SPEAKER_OFF, &priv->flags))
 		return;
@@ -2400,6 +2401,16 @@ err:
 	return stat;
 }
 
+static int start_pll_polling(struct ivm6303_priv *priv)
+{
+	if (test_and_set_bit(WAITING_FOR_PLL_LOCK, &priv->flags))
+		/* Already waiting for pll lock */
+		return 0;
+	priv->pll_locked_poll_attempts = 0;
+	return queue_delayed_work(priv->wq, &priv->pll_locked_work,
+				  PLL_LOCKED_POLL_PERIOD);
+}
+
 static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 			       struct snd_soc_dai *dai)
 {
@@ -2410,17 +2421,12 @@ static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 	switch(cmd) {
 	case SNDRV_PCM_TRIGGER_START:
 		dev_dbg(component->dev, "%s, start trigger cmd\n", __func__);
-		if (priv->i2c_client->irq <= 0 &&
-		    substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
-			if (!test_and_set_bit(WAITING_FOR_PLL_LOCK,
-					      &priv->flags)) {
-				priv->pll_locked_poll_attempts = 0;
-				ret = queue_delayed_work(priv->wq,
-							 &priv->pll_locked_work,
-							 PLL_LOCKED_POLL_PERIOD);
-				clear_bit(WAITING_FOR_SPEAKER_OFF,
-					  &priv->flags);
-			}
+		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+			clear_bit(WAITING_FOR_SPEAKER_OFF, &priv->flags);
+			set_bit(WAITING_FOR_SPEAKER_ON, &priv->flags);
+		}
+		if (priv->i2c_client->irq <= 0)
+			ret = start_pll_polling(priv);
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 		/*
