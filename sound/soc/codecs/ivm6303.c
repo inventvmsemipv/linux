@@ -1211,6 +1211,25 @@ err:
 	return ret;
 }
 
+static void _post_tdm_apply_hack(struct ivm6303_priv *priv)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	unsigned int v;
+	int stat;
+
+	dev_dbg(dev, "TDM APPLY HACK\n");
+	stat = regmap_read(priv->regmap, IVM6303_TDM_SETTINGS(1), &v);
+	if (stat < 0)
+		dev_err(dev, "error reading tdm settings 1\n");
+	stat = regmap_write(priv->regmap, IVM6303_TDM_SETTINGS(1), 0x70);
+	if (stat < 0)
+		dev_err(dev, "error writing dummy tdm settings 1\n");
+	msleep(1);
+	stat = regmap_write(priv->regmap, IVM6303_TDM_SETTINGS(1), v);
+	if (stat < 0)
+		dev_err(dev, "error writing final tdm settings 1\n");
+}
+
 /* Assumes regmap mutex taken */
 static void _do_tdm_apply(struct ivm6303_priv *priv)
 {
@@ -1221,6 +1240,8 @@ static void _do_tdm_apply(struct ivm6303_priv *priv)
 				  DO_APPLY_CONF, DO_APPLY_CONF);
 	if (stat < 0)
 		dev_err(dev, "%s: could not apply TDM conf", __func__);
+	msleep(1);
+	_post_tdm_apply_hack(priv);
 }
 
 static int _set_references_enable(struct ivm6303_priv *priv, int en)
