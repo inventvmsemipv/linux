@@ -1343,18 +1343,36 @@ static irqreturn_t ivm6303_pll_lock_ok_handler(int irq, void *_priv)
 	return IRQ_HANDLED;
 }
 
+static int _tdm_enabled(struct ivm6303_priv *priv)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	int stat, ret;
+	unsigned int v;
+
+	stat = regmap_read(priv->regmap, IVM6303_ENABLES_SETTINGS(2), &v);
+	if (stat < 0) {
+		dev_err(dev, "error checking for tdm enabled\n");
+		/* Say it's enabled anyway */
+		return 1;
+	}
+	ret = v & TDM_EN;
+	dev_dbg(dev, "%s returns %d\n", __func__, ret);
+	return ret;
+}
+
 /* Assumes regmap mutex taken */
 static void _try_tdm_apply(struct ivm6303_priv *priv)
 {
 	struct device *dev = &priv->i2c_client->dev;
 
-	priv->tdm_apply_needed = !_poll_pll_locked(priv);
+	priv->tdm_apply_needed = !_poll_pll_locked(priv) || !_tdm_enabled(priv);
 
 	if (priv->tdm_apply_needed) {
-		dev_dbg(dev, "%s: PLL not locked\n", __func__);
+		dev_dbg(dev, "%s: PLL not locked or TDM not enabled\n",
+			__func__);
 		return;
 	}
-	dev_dbg(dev, "PLL locked, applying TDM conf\n");
+	dev_dbg(dev, "PLL locked and TDM enabled, applying TDM conf\n");
 	_do_tdm_apply(priv);
 }
 
