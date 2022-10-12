@@ -49,7 +49,7 @@
 # define ENV_TRACK_EN			(BIT(4)|BIT(5))
 # define BOP_EN				BIT(6)
 # define VBAT_EN			BIT(7)
-# define IVM6303_DSP_MASK		(EQ2_EN|ENV_TRACK_EN|BOP_EN|VBAT_EN)
+# define IVM6303_DSP_MASK		(ENV_TRACK_EN|BOP_EN|VBAT_EN)
 
 # define PLL_EN				BIT(3)
 # define PLL_CLKMUX_EN			BIT(2)
