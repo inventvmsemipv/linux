@@ -367,6 +367,7 @@ struct ivm6303_priv {
 #define WAITING_FOR_SPEAKER_ON 2
 	unsigned long		flags;
 	unsigned int		saved_volume;
+	int			muted;
 };
 
 static long sign_extend(unsigned long v, int nbits)
@@ -2500,7 +2501,7 @@ static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 {
 	struct snd_soc_component *component = dai->component;
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
-	int ret;
+	int ret = 0, doit;
 
 	if (stream != SNDRV_PCM_STREAM_PLAYBACK)
 		/* Ignore mute on capture */
@@ -2508,18 +2509,27 @@ static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 
 	dev_dbg(component->dev, "%s(): mute = %d\n", __func__, mute);
 	mutex_lock(&priv->regmap_mutex);
-	if (mute) {
+	doit = mute != priv->muted;
+	if (doit && mute) {
 		ret = regmap_read(priv->regmap, IVM6303_VOLUME,
 				  &priv->saved_volume);
+		dev_dbg(component->dev, "%s(): saved_volume = %u\n",
+			__func__, priv->saved_volume);
 		if (ret < 0)
 			goto err;
+		dev_dbg(component->dev, "%s(): writing 0 to volume\n",
+			__func__);
 		ret = regmap_write(priv->regmap, IVM6303_VOLUME, 0);
-		if (ret < 0)
-			goto err;
-	} else
+	}
+	if (doit && !mute) {
+		dev_dbg(component->dev, "%s(): writing %u to volume\n",
+			__func__, priv->saved_volume);
 		ret = regmap_write(priv->regmap, IVM6303_VOLUME,
 				   priv->saved_volume);
+	}
 err:
+	if (ret >= 0 && doit)
+		priv->muted = mute;
 	mutex_unlock(&priv->regmap_mutex);
 	return ret;
 }
