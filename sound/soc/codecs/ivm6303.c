@@ -1264,6 +1264,34 @@ static int _set_dsp_enable(struct ivm6303_priv *priv, int en)
 				  en ? IVM6303_DSP_MASK : 0);
 }
 
+static int _do_mute(struct ivm6303_priv *priv, int mute)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	int doit, ret;
+
+	doit = mute != priv->muted;
+	if (doit && mute) {
+		ret = regmap_read(priv->regmap, IVM6303_VOLUME,
+				  &priv->saved_volume);
+		dev_dbg(dev, "%s(): saved_volume = %u\n",
+			__func__, priv->saved_volume);
+		if (ret < 0)
+			goto err;
+		dev_dbg(dev, "%s(): writing 0 to volume\n", __func__);
+		ret = regmap_write(priv->regmap, IVM6303_VOLUME, 0);
+	}
+	if (doit && !mute) {
+		dev_dbg(dev, "%s(): writing %u to volume\n",
+			__func__, priv->saved_volume);
+		ret = regmap_write(priv->regmap, IVM6303_VOLUME,
+				   priv->saved_volume);
+	}
+err:
+	if (ret >= 0 && doit)
+		priv->muted = mute;
+	return ret;
+}
+
 static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 {
 	static const u8 force_intfb_vals[] = { 0x70, 0x60, };
@@ -2501,7 +2529,7 @@ static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 {
 	struct snd_soc_component *component = dai->component;
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
-	int ret = 0, doit;
+	int ret = 0;
 
 	if (stream != SNDRV_PCM_STREAM_PLAYBACK)
 		/* Ignore mute on capture */
@@ -2509,27 +2537,7 @@ static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 
 	dev_dbg(component->dev, "%s(): mute = %d\n", __func__, mute);
 	mutex_lock(&priv->regmap_mutex);
-	doit = mute != priv->muted;
-	if (doit && mute) {
-		ret = regmap_read(priv->regmap, IVM6303_VOLUME,
-				  &priv->saved_volume);
-		dev_dbg(component->dev, "%s(): saved_volume = %u\n",
-			__func__, priv->saved_volume);
-		if (ret < 0)
-			goto err;
-		dev_dbg(component->dev, "%s(): writing 0 to volume\n",
-			__func__);
-		ret = regmap_write(priv->regmap, IVM6303_VOLUME, 0);
-	}
-	if (doit && !mute) {
-		dev_dbg(component->dev, "%s(): writing %u to volume\n",
-			__func__, priv->saved_volume);
-		ret = regmap_write(priv->regmap, IVM6303_VOLUME,
-				   priv->saved_volume);
-	}
-err:
-	if (ret >= 0 && doit)
-		priv->muted = mute;
+	ret = _do_mute(priv, mute);
 	mutex_unlock(&priv->regmap_mutex);
 	return ret;
 }
