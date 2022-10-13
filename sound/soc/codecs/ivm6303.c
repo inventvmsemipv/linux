@@ -1298,6 +1298,10 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 	static const u8 leave_intfb_vals[] = { 0x00, 0x00, };
 	int stat;
 
+	if (!en) {
+		_do_mute(priv, 1);
+		msleep(10);
+	}
 	/* Force internal feedback */
 	stat = regmap_bulk_write(priv->regmap, IVM6303_FORCE_INTFB,
 				 force_intfb_vals,
@@ -1326,6 +1330,8 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 				 ARRAY_SIZE(leave_intfb_vals));
 	if (stat < 0)
 		pr_err("Error leaving internal feedback\n");
+	if (en)
+		_do_mute(priv, 0);
 	/* TEMPORARY: switch back to page 0 */
 	regmap_write(priv->regmap, IVM6303_SYSTEM_CTRL, 1);
 }
