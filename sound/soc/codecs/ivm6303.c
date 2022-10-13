@@ -127,6 +127,8 @@
 # define I_DL_SHIFT			6
 # define I_DL_MASK			(0x3 << I_DL_SHIFT)
 
+#define IVM6303_VOLUME			0x61
+
 #define IVM6303_VOLUME_STATUS(x)	((x) + 0x6c)
 
 #define IVM6303_PLL_SETTINGS(x)		((x) + 0x80)
@@ -364,6 +366,7 @@ struct ivm6303_priv {
 #define WAITING_FOR_SPEAKER_OFF 1
 #define WAITING_FOR_SPEAKER_ON 2
 	unsigned long		flags;
+	unsigned int		saved_volume;
 };
 
 static long sign_extend(unsigned long v, int nbits)
@@ -1535,7 +1538,11 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 	INIT_DELAYED_WORK(&priv->pll_locked_work, pll_locked_handler);
 	INIT_WORK(&priv->fw_exec_work, fw_exec_handler);
 	INIT_WORK(&priv->speaker_deferred_work, speaker_deferred_handler);
-	return run_fw_section_sync(component, IVM6303_PROBE_WRITES);
+	ret = run_fw_section_sync(component, IVM6303_PROBE_WRITES);
+	if (ret < 0)
+		return ret;
+	/* Initialize volume */
+	return regmap_read(priv->regmap, IVM6303_VOLUME, &priv->saved_volume);
 }
 
 static void ivm6303_component_remove(struct snd_soc_component *component)
@@ -2501,8 +2508,18 @@ static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 
 	dev_dbg(component->dev, "%s(): mute = %d\n", __func__, mute);
 	mutex_lock(&priv->regmap_mutex);
-	ret = regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(5),
-				 SPK_MUTE, mute ? SPK_MUTE : 0);
+	if (mute) {
+		ret = regmap_read(priv->regmap, IVM6303_VOLUME,
+				  &priv->saved_volume);
+		if (ret < 0)
+			goto err;
+		ret = regmap_write(priv->regmap, IVM6303_VOLUME, 0);
+		if (ret < 0)
+			goto err;
+	} else
+		ret = regmap_write(priv->regmap, IVM6303_VOLUME,
+				   priv->saved_volume);
+err:
 	mutex_unlock(&priv->regmap_mutex);
 	return ret;
 }
