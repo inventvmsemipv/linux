@@ -1294,6 +1294,8 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 				 ARRAY_SIZE(leave_intfb_vals));
 	if (stat < 0)
 		pr_err("Error leaving internal feedback\n");
+	/* TEMPORARY: switch back to page 0 */
+	regmap_write(priv->regmap, IVM6303_SYSTEM_CTRL, 1);
 }
 
 static void _turn_speaker_on(struct ivm6303_priv *priv)
