@@ -1135,7 +1135,7 @@ static int _do_autocal(struct ivm6303_priv *priv)
 {
 	int ret, _ret;
 	unsigned int gain_100_offs_int_comp_v;
-	long gain_100_offs_comp_v, az_avg;
+	long gain_100_offs_comp_v, prev_gain_100_offs_comp_v, az_avg;
 	long vis_settings_saved_vals;
 	/* A0: LSB, A7: MSB */
 	long vis_settings_enter_vals = 0x5f2701;
@@ -1154,6 +1154,8 @@ static int _do_autocal(struct ivm6303_priv *priv)
 				&gain_100_offs_comp_v, 1);
 	if (ret)
 		goto end;
+	/* Save for restoring later on, in case autocal goes wrong */
+	prev_gain_100_offs_comp_v = gain_100_offs_comp_v;
 	/*
 	 * Save Vs/Is settings registers and set them properly
 	 * for the calibration procedure
@@ -1180,6 +1182,14 @@ static int _do_autocal(struct ivm6303_priv *priv)
 		goto pdown;
 	/* Check new vsense after correction */
 	ret = _vsense_check_loop(priv, az_avg, gain_100_offs_comp_v);
+	if (ret < 0) {
+		/* Autocal did not converge, restore saved gain */
+		_ret = _ivm6303_mfr_write(priv,
+					  IVM6303_MFR_GAIN_100_OFFS_COMP,
+					  prev_gain_100_offs_comp_v);
+		if (ret < 0)
+			dev_err(dev, "could not restore register 0xdf");
+	}
 pdown:
 	/*
 	 * all done, restore Vs/Is settings
