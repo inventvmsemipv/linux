@@ -1117,9 +1117,9 @@ static int _vsense_check_loop(struct ivm6303_priv *priv, long az_avg,
 		/* FIXME !!!!!! */
 		/* Delta(Offset)/Delta(az) rate of change is 256/30 */
 		gain_offs_com_v += (error << 8)/30;
-		ret = _ivm6303_mfr_read(priv,
-					IVM6303_MFR_GAIN_100_OFFS_COMP,
-					&gain_offs_com_v, 1);
+		ret = _ivm6303_mfr_write(priv,
+					 IVM6303_MFR_GAIN_100_OFFS_COMP,
+					 gain_offs_com_v);
 	}
 	if (ret) {
 		dev_err(dev, "Autocal failed (%d)\n", ret);
