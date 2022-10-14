@@ -1310,7 +1310,7 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 
 	if (!en) {
 		_do_mute(priv, 1);
-		msleep(10);
+		msleep(100);
 	}
 	/* Force internal feedback */
 	stat = regmap_bulk_write(priv->regmap, IVM6303_FORCE_INTFB,
