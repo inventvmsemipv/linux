@@ -365,6 +365,7 @@ struct ivm6303_priv {
 #define WAITING_FOR_PLL_LOCK 0
 #define WAITING_FOR_SPEAKER_OFF 1
 #define WAITING_FOR_SPEAKER_ON 2
+#define SPEAKER_ENABLED 3
 	unsigned long		flags;
 	unsigned int		saved_volume;
 	int			muted;
@@ -1342,6 +1343,10 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 		pr_err("Error leaving internal feedback\n");
 	if (en)
 		_do_mute(priv, 0);
+	if (en)
+		set_bit(SPEAKER_ENABLED, &priv->flags);
+	else
+		clear_bit(SPEAKER_ENABLED, &priv->flags);
 	/* TEMPORARY: switch back to page 0 */
 	regmap_write(priv->regmap, IVM6303_SYSTEM_CTRL, 1);
 }
