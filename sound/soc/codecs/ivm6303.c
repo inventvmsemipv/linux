@@ -1126,8 +1126,15 @@ static int _do_autocal(struct ivm6303_priv *priv)
 	/* A0: LSB, A7: MSB */
 	long vis_settings_enter_vals = 0x5f2701;
 	u8 cal_intfb_leave_vals[] = { 0x00, 0x00, };
+	u8 cal_intfb_enter_vals[] = { BIT(6), BIT(6), };
 	struct device *dev = &priv->i2c_client->dev;
 
+
+	ret = regmap_bulk_write(priv->regmap, IVM6303_ANALOG_REG3_FORCE,
+				cal_intfb_enter_vals,
+				ARRAY_SIZE(cal_intfb_enter_vals));
+	if (ret < 0)
+		goto end;
 	/*
 	 * save value of register 0xdf (it could change during the autozero
 	 * calc procedure
@@ -1295,12 +1302,6 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 		_do_mute(priv, 1);
 		msleep(100);
 	}
-	/* Force internal feedback */
-	stat = regmap_bulk_write(priv->regmap, IVM6303_FORCE_INTFB,
-				 force_intfb_vals,
-				 ARRAY_SIZE(force_intfb_vals));
-	if (stat < 0)
-		pr_err("Error forcing internal feedback\n");
 	/* Turn on speaker */
 	stat = regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(5),
 				  SPK_EN, en ? SPK_EN : 0);
@@ -1311,6 +1312,12 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 				  BST_EN, en ? BST_EN : 0);
 	if (stat < 0)
 		pr_err("Error enabling boost\n");
+	/* Force internal feedback */
+	stat = regmap_bulk_write(priv->regmap, IVM6303_FORCE_INTFB,
+				 force_intfb_vals,
+				 ARRAY_SIZE(force_intfb_vals));
+	if (stat < 0)
+		pr_err("Error forcing internal feedback\n");
 	/* Do autocal if needed */
 	if (en && !priv->autocal_done) {
 		stat = _do_autocal(priv);
