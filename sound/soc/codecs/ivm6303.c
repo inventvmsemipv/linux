@@ -1059,28 +1059,6 @@ static int _az_avg_calc(struct ivm6303_priv *priv, long *out)
 	return _post_az_seq(priv);
 }
 
-/* Assumes regmap lock taken */
-static int _pre_az_avg_calc(struct ivm6303_priv *priv)
-{
-	struct ivm6303_register seq[] = {
-		/* FIXME: USE REGISTERS NAMES */
-		{
-			.addr = 0xa7,
-			.val = 0x5f,
-		},
-		{
-			.addr = 0xa5,
-			.val = 0x27,
-		},
-		{
-			.addr = 0xa0,
-			.val = 0x01,
-		}
-	};
-
-	return _do_regs_assign_seq(priv, ARRAY_SIZE(seq), seq);
-}
-
 static int _get_avg_vsense(struct ivm6303_priv *priv, long *out)
 {
 #define VSENSE_AVG_SAMPLES 16
@@ -1170,9 +1148,6 @@ static int _do_autocal(struct ivm6303_priv *priv)
 		goto end;
 	ret = _ivm6303_mfr_write(priv, IVM6303_MFR_VIS_SETTINGS,
 				 vis_settings_enter_vals);
-	if (ret < 0)
-		goto end;
-	ret = _pre_az_avg_calc(priv);
 	if (ret < 0)
 		goto end;
 	ret = _az_avg_calc(priv, &az_avg);
