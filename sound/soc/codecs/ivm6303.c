@@ -1074,6 +1074,8 @@ static int _get_avg_vsense(struct ivm6303_priv *priv, long *out)
 		v += w;
 	}
 	*out = v / VSENSE_AVG_SAMPLES;
+	dev_dbg(&priv->i2c_client->dev, "%s, avg vsense = %ld\n", __func__,
+		*out);
 	return ret;
 }
 
