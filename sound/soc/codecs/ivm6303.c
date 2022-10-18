@@ -1049,6 +1049,8 @@ static int _az_avg_calc(struct ivm6303_priv *priv, long *out)
 		ret = _prepare_az_meas(priv, i);
 		if (ret < 0)
 			return ret;
+		regmap_update_bits(priv->regmap, IVM6303_TEST_DIG1,
+				   FORCE_SEQ_CAL_EN, FORCE_SEQ_CAL_EN);
 		msleep(100);
 		ret = _ivm6303_mfr_read(priv, IVM6303_MFR_CALC_AZ_MEAS_INT,
 					&v, 1);
