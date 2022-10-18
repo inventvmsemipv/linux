@@ -1080,7 +1080,7 @@ static int _get_avg_vsense(struct ivm6303_priv *priv, long *out)
 }
 
 #define MAX_ERROR_THR 4
-#define MAX_ITERATIONS 10
+#define MAX_ITERATIONS 20
 
 /* Assumes regmap lock taken */
 static int _vsense_check_loop(struct ivm6303_priv *priv, long az_avg,
