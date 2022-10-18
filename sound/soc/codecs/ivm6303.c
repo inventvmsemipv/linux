@@ -1113,11 +1113,14 @@ static int _vsense_check_loop(struct ivm6303_priv *priv, long az_avg,
 		if (ret < 0)
 			return ret;
 		error = avg_vsns - az_avg;
+		dev_dbg(dev, "%s: error = %ld\n", __func__, error);
 		if (error && abs(error) < MAX_ERROR_THR)
 			break;
 		/* FIXME !!!!!! */
 		/* Delta(Offset)/Delta(az) rate of change is 256/30 */
-		gain_offs_com_v += (error << 8)/30;
+		gain_offs_com_v += error << 3;
+		dev_dbg(dev, "%s: writing gain_offs_com_v = %ld\n",
+			__func__, gain_offs_com_v);
 		ret = _ivm6303_mfr_write(priv,
 					 IVM6303_MFR_GAIN_100_OFFS_COMP,
 					 gain_offs_com_v);
