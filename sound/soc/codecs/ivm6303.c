@@ -336,6 +336,14 @@ static const struct ivm6303_mfr *ivm6303_mfrs[] = {
 	[ IVM6303_MFR_VIS_SETTINGS ] = &vis_settings,
 };
 
+enum ivm6303_clk_status {
+	ERROR = -1,
+	STOPPED = 0,
+	WAITING_FOR_PLL_LOCK,
+	WAITING_FOR_CLKMON_OK,
+	RUNNING,
+};
+
 struct ivm6303_priv {
 	struct workqueue_struct	*wq;
 	struct delayed_work	pll_locked_work;
@@ -362,7 +370,7 @@ struct ivm6303_priv {
 	atomic_t		running_section;
 	int			tdm_apply_needed;
 	int			autocal_done;
-#define WAITING_FOR_PLL_LOCK 0
+	atomic_t		clk_status;
 #define WAITING_FOR_SPEAKER_OFF 1
 #define WAITING_FOR_SPEAKER_ON 2
 #define SPEAKER_ENABLED 3
@@ -1376,7 +1384,7 @@ static void _pll_locked_handler(struct ivm6303_priv *priv)
 {
 	struct device *dev = &priv->i2c_client->dev;
 
-	clear_bit(WAITING_FOR_PLL_LOCK, &priv->flags);
+	atomic_set(&priv->clk_status, RUNNING);
 	if (priv->tdm_apply_needed) {
 		dev_dbg(dev, "%s: doing tdm apply\n", __func__);
 		_do_tdm_apply(priv);
@@ -2511,8 +2519,11 @@ err:
 
 static int start_pll_polling(struct ivm6303_priv *priv)
 {
-	if (test_and_set_bit(WAITING_FOR_PLL_LOCK, &priv->flags))
-		/* Already waiting for pll lock */
+	int olds;
+
+	olds = atomic_cmpxchg(&priv->clk_status, STOPPED, WAITING_FOR_PLL_LOCK);
+	if (olds == WAITING_FOR_PLL_LOCK)
+		/* Already waiting, do nothing */
 		return 0;
 	priv->pll_locked_poll_attempts = 0;
 	return queue_delayed_work(priv->wq, &priv->pll_locked_work,
@@ -2548,7 +2559,7 @@ static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 				       &priv->flags))
 			ret = queue_work(priv->wq,
 					 &priv->speaker_deferred_work);
-		clear_bit(WAITING_FOR_PLL_LOCK, &priv->flags);
+		atomic_set(&priv->clk_status, STOPPED);
 		break;
 	default:
 		break;
@@ -2758,6 +2769,7 @@ static int ivm6303_probe(struct i2c_client *client)
 
 	priv->i2c_client = client;
 	priv->tdm_settings_1 = -1;
+	atomic_set(&priv->clk_status, STOPPED);
 
 	priv->regmap = devm_regmap_init_i2c(priv->i2c_client, &regmap_config);
 	if (IS_ERR(priv->regmap)) {
