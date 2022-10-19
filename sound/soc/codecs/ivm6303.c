@@ -92,6 +92,7 @@
 
 #define IVM6303_STATUS(n)		(0x09 + ((n) - 1))
 # define PLL_LOCK_OK			BIT(7)
+# define CLK_MON_OK			BIT(0)
 
 # define IVM6303_SEQUENCER_STATUS(n)	(0x1b + ((n) - 1))
 
@@ -232,6 +233,7 @@
 
 #define PLL_LOCKED_POLL_PERIOD (5 * ((HZ)/1000))
 #define MAX_PLL_LOCKED_POLL_ATTS (100)
+#define MAX_CLK_MON_OK_ATTS (100)
 
 enum ivm_tdm_size {
 	IVM_TDM_SIZE_16 = 1,
@@ -359,6 +361,7 @@ struct ivm6303_priv {
 	int			slots;
 	int			slot_width;
 	int			pll_locked_poll_attempts;
+	int			clkmon_ok_attempts;
 	/* tdm_settings_1 register */
 	int			tdm_settings_1;
 	/* PLL settings */
@@ -1383,8 +1386,38 @@ static void _turn_speaker_off(struct ivm6303_priv *priv)
 static void _pll_locked_handler(struct ivm6303_priv *priv)
 {
 	struct device *dev = &priv->i2c_client->dev;
+	unsigned int status;
+	int olds;
 
+	regmap_read(priv->regmap, IVM6303_STATUS(1), &status);
+	if (!(status & CLK_MON_OK)) {
+		olds = atomic_cmpxchg(&priv->clk_status, WAITING_FOR_PLL_LOCK,
+				      WAITING_FOR_CLKMON_OK);
+		switch(olds) {
+		case WAITING_FOR_PLL_LOCK:
+			dev_dbg(dev, "start waiting for clkmon ok");
+			priv->clkmon_ok_attempts = 0;
+			break;
+		case WAITING_FOR_CLKMON_OK:
+			if (priv->clkmon_ok_attempts++ >= MAX_CLK_MON_OK_ATTS) {
+				dev_err(dev, "clk mon ok timeout\n");
+				atomic_set(&priv->clk_status, ERROR);
+				return;
+			}
+			break;
+		default:
+			dev_err(dev, "%s: unexpected clock state %d",
+				__func__, olds);
+			return;
+		}
+		/* Wait a little bit more */
+		queue_delayed_work(priv->wq, &priv->pll_locked_work,
+				   PLL_LOCKED_POLL_PERIOD);
+		return;
+	}
+	/* PLL locked and clkmon OK, clock is running (BCLK + FSYN) */
 	atomic_set(&priv->clk_status, RUNNING);
+	dev_dbg(dev, "%s: PLL LOCKED AND CLK_MON OK\n", __func__);
 	if (priv->tdm_apply_needed) {
 		dev_dbg(dev, "%s: doing tdm apply\n", __func__);
 		_do_tdm_apply(priv);
@@ -1458,15 +1491,17 @@ static int _tdm_enabled(struct ivm6303_priv *priv)
 static void _try_tdm_apply(struct ivm6303_priv *priv)
 {
 	struct device *dev = &priv->i2c_client->dev;
+	unsigned int clk_status;
 
-	priv->tdm_apply_needed = !_poll_pll_locked(priv) || !_tdm_enabled(priv);
+	clk_status = atomic_read(&priv->clk_status);
+	priv->tdm_apply_needed = (clk_status != RUNNING) || !_tdm_enabled(priv);
 
 	if (priv->tdm_apply_needed) {
-		dev_dbg(dev, "%s: PLL not locked or TDM not enabled\n",
+		dev_dbg(dev, "%s: CLK_MON not OK or TDM not enabled\n",
 			__func__);
 		return;
 	}
-	dev_dbg(dev, "PLL locked and TDM enabled, applying TDM conf\n");
+	dev_dbg(dev, "CLK_MON OK and TDM enabled, applying TDM conf\n");
 	_do_tdm_apply(priv);
 }
 
