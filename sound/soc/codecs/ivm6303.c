@@ -1097,7 +1097,7 @@ static int _vsense_check_loop(struct ivm6303_priv *priv, long az_avg,
 			return ret;
 		error = avg_vsns - az_avg;
 		dev_dbg(dev, "%s: error = %ld\n", __func__, error);
-		if (error && abs(error) < MAX_ERROR_THR)
+		if (abs(error) < MAX_ERROR_THR)
 			break;
 		/* FIXME !!!!!! */
 		/* Delta(Offset)/Delta(az) rate of change is 256/30 */
