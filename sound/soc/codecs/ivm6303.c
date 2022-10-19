@@ -366,6 +366,7 @@ struct ivm6303_priv {
 #define WAITING_FOR_SPEAKER_OFF 1
 #define WAITING_FOR_SPEAKER_ON 2
 #define SPEAKER_ENABLED 3
+#define DEFERRED_MUTE 4
 	unsigned long		flags;
 	unsigned int		saved_volume;
 	int			muted;
@@ -1269,7 +1270,8 @@ static int _do_mute(struct ivm6303_priv *priv, int mute)
 	struct device *dev = &priv->i2c_client->dev;
 	int doit, ret;
 
-	doit = mute != priv->muted;
+	doit = mute != priv->muted ||
+		test_and_clear_bit(DEFERRED_MUTE, &priv->flags);
 	if (doit && mute) {
 		ret = regmap_read(priv->regmap, IVM6303_VOLUME,
 				  &priv->saved_volume);
@@ -1294,6 +1296,7 @@ err:
 
 static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 {
+	struct device *dev = &priv->i2c_client->dev;
 	static const u8 force_intfb_vals[] = { 0x70, 0x60, };
 	static const u8 leave_intfb_vals[] = { 0x00, 0x00, };
 	int stat;
@@ -1330,11 +1333,11 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 				 ARRAY_SIZE(leave_intfb_vals));
 	if (stat < 0)
 		pr_err("Error leaving internal feedback\n");
-	if (en)
-		_do_mute(priv, 0);
-	if (en)
+	if (en) {
+		dev_dbg(dev, "resync mute status (%d)", priv->muted);
+		_do_mute(priv, priv->muted);
 		set_bit(SPEAKER_ENABLED, &priv->flags);
-	else
+	} else
 		clear_bit(SPEAKER_ENABLED, &priv->flags);
 	/* TEMPORARY: switch back to page 0 */
 	regmap_write(priv->regmap, IVM6303_SYSTEM_CTRL, 1);
@@ -2547,7 +2550,15 @@ static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 
 	dev_dbg(component->dev, "%s(): mute = %d\n", __func__, mute);
 	mutex_lock(&priv->regmap_mutex);
-	ret = _do_mute(priv, mute);
+	if (!test_bit(SPEAKER_ENABLED, &priv->flags)) {
+		/*
+		 * Actual mute status will be resynced when speaker is turned
+		 * on
+		 */
+		priv->muted = mute;
+		set_bit(DEFERRED_MUTE, &priv->flags);
+	} else
+		ret = _do_mute(priv, mute);
 	mutex_unlock(&priv->regmap_mutex);
 	return ret;
 }
