@@ -1299,12 +1299,24 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 	struct device *dev = &priv->i2c_client->dev;
 	static const u8 force_intfb_vals[] = { 0x70, 0x60, };
 	static const u8 leave_intfb_vals[] = { 0x00, 0x00, };
+	static unsigned int vsis_en = 0;
 	int stat;
 
 	if (!en) {
 		_do_mute(priv, 1);
 		msleep(100);
 	}
+
+	stat = regmap_read(priv->regmap, IVM6303_VISENSE_SETTINGS(1),
+			   &vsis_en);
+	if (stat < 0)
+		pr_err("Error reading VsIs enable bits\n");
+
+	stat = regmap_update_bits(priv->regmap, IVM6303_VISENSE_SETTINGS(1),
+				  VIS_DIG_EN_MASK, 0);
+	if (stat < 0)
+		pr_err("Error disabling VsIs\n");
+
 	/* Turn on speaker */
 	stat = regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(5),
 				  SPK_EN, en ? SPK_EN : 0);
@@ -1327,6 +1339,12 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 		if (!stat)
 			priv->autocal_done = 1;
 	}
+
+	/* Restore Vs/Is enable */
+	stat = regmap_write(priv->regmap, IVM6303_VISENSE_SETTINGS(1), vsis_en);
+	if (stat < 0)
+		pr_err("Error reading VsIs enable bits\n");
+
 	/* Finally leave internal feedback */
 	stat = regmap_bulk_write(priv->regmap, IVM6303_FORCE_INTFB,
 				 leave_intfb_vals,
