@@ -12,6 +12,28 @@
 #include <sound/soc.h>
 #include "ivm6303.h"
 
+static ssize_t force_autocal_write(struct file *file,
+				   const char __user *user_buf,
+				   size_t count, loff_t *ppos)
+{
+	char buf[4];
+	int sz = min(sizeof(buf), count);
+	struct ivm6303_priv *priv = file->private_data;
+	int ret;
+
+	if (copy_from_user(buf, user_buf, sz))
+		return -EFAULT;
+	ret = ivm6303_force_autocal(priv);
+	if (ret < 0)
+		return ret;
+	return sz;
+}
+
+static const struct file_operations force_autocal_fops = {
+	.open = simple_open,
+	.write = force_autocal_write,
+};
+
 void ivm6303_init_debugfs(struct snd_soc_component *component)
 {
 	struct dentry *root = NULL;
@@ -30,6 +52,8 @@ void ivm6303_init_debugfs(struct snd_soc_component *component)
 	debugfs_create_ulong("flags", 0444, root, &priv->flags);
 	debugfs_create_u32("saved_volume", 0444, root, &priv->saved_volume);
 	debugfs_create_u32("muted", 0444, root, &priv->muted);
+	debugfs_create_file("force-autocal", 0222, root, priv,
+			    &force_autocal_fops);
 }
 
 void ivm6303_cleanup_debugfs(struct snd_soc_component *component)
