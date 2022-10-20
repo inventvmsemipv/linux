@@ -92,6 +92,7 @@ struct ivm6303_priv {
 	unsigned long		flags;
 	unsigned int		saved_volume;
 	int			muted;
+	struct dentry		*debugfs_root;
 };
 
 

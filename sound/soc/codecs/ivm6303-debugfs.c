@@ -14,8 +14,17 @@
 
 void ivm6303_init_debugfs(struct snd_soc_component *component)
 {
+	struct dentry *root = NULL;
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+
+	root = debugfs_create_dir(dev_name(component->dev),
+				  component->debugfs_root);
+	debugfs_create_x8("hw_rev", 0444, root, &priv->hw_rev);
 }
 
 void ivm6303_cleanup_debugfs(struct snd_soc_component *component)
 {
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+
+	debugfs_remove_recursive(priv->debugfs_root);
 }
