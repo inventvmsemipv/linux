@@ -20,6 +20,10 @@ void ivm6303_init_debugfs(struct snd_soc_component *component)
 	root = debugfs_create_dir(dev_name(component->dev),
 				  component->debugfs_root);
 	debugfs_create_x8("hw_rev", 0444, root, &priv->hw_rev);
+	debugfs_create_ulong("pll_feedback_divider", 0444, root,
+			     &priv->pll_feedback_divider);
+	debugfs_create_ulong("pll_input_divider", 0444, root,
+			     &priv->pll_input_divider);
 }
 
 void ivm6303_cleanup_debugfs(struct snd_soc_component *component)
