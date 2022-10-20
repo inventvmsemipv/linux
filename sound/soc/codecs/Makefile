@@ -124,6 +124,7 @@ snd-soc-idt821034-objs := idt821034.o
 snd-soc-inno-rk3036-objs := inno_rk3036.o
 snd-soc-isabelle-objs := isabelle.o
 snd-soc-ivm6303-objs := ivm6303.o
+snd-soc-ivm6303-${CONFIG_DEBUG_FS} += ivm6303-debugfs.o
 snd-soc-jz4740-codec-objs := jz4740.o
 snd-soc-jz4725b-codec-objs := jz4725b.o
 snd-soc-jz4760-codec-objs := jz4760.o

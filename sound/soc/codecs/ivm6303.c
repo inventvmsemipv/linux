@@ -31,6 +31,8 @@
 #include <linux/pm_wakeup.h>
 #include <linux/kernel.h>
 
+#include "ivm6303.h"
+
 /* Base Region */
 #define IVM6303_SYSTEM_CTRL		0x00
 
@@ -1644,6 +1646,7 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 	ret = run_fw_section_sync(component, IVM6303_PROBE_WRITES);
 	if (ret < 0)
 		return ret;
+	ivm6303_init_debugfs(component);
 	/* Initialize volume */
 	return regmap_read(priv->regmap, IVM6303_VOLUME, &priv->saved_volume);
 }
@@ -1652,6 +1655,7 @@ static void ivm6303_component_remove(struct snd_soc_component *component)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 
+	ivm6303_cleanup_debugfs(component);
 	cancel_delayed_work_sync(&priv->pll_locked_work);
 	flush_workqueue(priv->wq);
 	unload_fw(component);
