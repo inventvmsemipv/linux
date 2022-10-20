@@ -113,4 +113,6 @@ static inline void ivm6303_cleanup_debugfs(struct snd_soc_component *component)
 
 #endif /* !CONFIG_DEBUG_FS */
 
+int ivm6303_force_autocal(struct ivm6303_priv *priv);
+
 #endif /* __IVM6303_H__ */

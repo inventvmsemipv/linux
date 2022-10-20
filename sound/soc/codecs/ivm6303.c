@@ -1303,6 +1303,15 @@ static void _turn_speaker_off(struct ivm6303_priv *priv)
 	_set_speaker_enable(priv, 0);
 }
 
+int ivm6303_force_autocal(struct ivm6303_priv *priv)
+{
+	mutex_lock(&priv->regmap_mutex);
+	priv->autocal_done = 0;
+	_set_speaker_enable(priv, 1);
+	mutex_unlock(&priv->regmap_mutex);
+	return 0;
+}
+
 /* Assumes regmap mutex taken */
 static void _pll_locked_handler(struct ivm6303_priv *priv)
 {
