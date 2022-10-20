@@ -27,6 +27,7 @@ void ivm6303_init_debugfs(struct snd_soc_component *component)
 	debugfs_create_u32("slots", 0444, root, &priv->slots);
 	debugfs_create_u32("slot_width", 0444, root, &priv->slot_width);
 	debugfs_create_atomic_t("clk_status", 0444, root, &priv->clk_status);
+	debugfs_create_ulong("flags", 0444, root, &priv->flags);
 }
 
 void ivm6303_cleanup_debugfs(struct snd_soc_component *component)
