@@ -1103,6 +1103,11 @@ static int _do_autocal(struct ivm6303_priv *priv)
 				 gain_100_offs_comp_v);
 	if (ret < 0)
 		goto pdown;
+	ret = regmap_bulk_write(priv->regmap, IVM6303_ANALOG_REG3_FORCE,
+				cal_intfb_leave_vals,
+				ARRAY_SIZE(cal_intfb_leave_vals));
+	if (ret < 0)
+		goto pdown;
 	/* Check new vsense after correction */
 	ret = _vsense_check_loop(priv, az_avg, gain_100_offs_comp_v);
 	if (ret < 0) {
@@ -1123,11 +1128,6 @@ pdown:
 		(unsigned int)vis_settings_saved_vals);
 	_ret = _ivm6303_mfr_write(priv, IVM6303_MFR_VIS_SETTINGS,
 				  vis_settings_saved_vals);
-	if (_ret < 0 && ret >= 0)
-		ret = _ret;
-	_ret = regmap_bulk_write(priv->regmap, IVM6303_ANALOG_REG3_FORCE,
-				 cal_intfb_leave_vals,
-				 ARRAY_SIZE(cal_intfb_leave_vals));
 	if (_ret < 0 && ret >= 0)
 		ret = _ret;
 end:
