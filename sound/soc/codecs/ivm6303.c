@@ -1099,7 +1099,7 @@ static int _do_autocal(struct ivm6303_priv *priv)
 	if (ret < 0)
 		goto pdown;
 	/* restore register 0xdf */
-	ret = _ivm6303_mfr_write(priv, IVM6303_MFR_GAIN_100_OFFS_COMP,
+	ret = _ivm6303_mfr_write(priv, IVM6303_GAIN_OFFS_INTFB_COMP(4),
 				 gain_100_offs_comp_v);
 	if (ret < 0)
 		goto pdown;
