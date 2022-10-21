@@ -1101,13 +1101,17 @@ static int _do_autocal(struct ivm6303_priv *priv)
 	/* restore register 0xdf */
 	ret = regmap_write(priv->regmap, IVM6303_GAIN_OFFS_INTFB_COMP(4),
 			   gain_100_offs_int_comp_v);
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(dev, "could not restore 0xdf (%d)", ret);
 		goto pdown;
+	}
 	ret = regmap_bulk_write(priv->regmap, IVM6303_ANALOG_REG3_FORCE,
 				cal_intfb_leave_vals,
 				ARRAY_SIZE(cal_intfb_leave_vals));
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(dev, "could not restore 0x114 0x115 (%d)", ret);
 		goto pdown;
+	}
 	/* Check new vsense after correction */
 	ret = _vsense_check_loop(priv, az_avg, gain_100_offs_comp_v);
 	if (ret < 0) {
