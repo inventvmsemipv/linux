@@ -171,6 +171,8 @@
 
 #define IVM6303_FORCE_INTFB		0x110
 
+#define IVM6303_ANALOG_REG2_FORCE	0x112
+
 #define IVM6303_ANALOG_REG3_FORCE	0x114
 #define IVM6303_ANALOG_REG3		0x115
 #define IVM6303_TEST_DIG1_FORCE		0x116
@@ -1233,7 +1235,7 @@ err:
 static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 {
 	struct device *dev = &priv->i2c_client->dev;
-	static const u8 force_intfb_vals[] = { 0x70, 0x60, };
+	static const u8 force_intfb_vals[] = { 0x70, 0x60, 0x01, };
 	static const u8 leave_intfb_vals[] = { 0x00, 0x00, };
 	static unsigned int vsis_en = 0;
 	int stat;
@@ -1269,6 +1271,10 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 				  BST_EN, en ? BST_EN : 0);
 	if (stat < 0)
 		pr_err("Error enabling boost\n");
+	/* Restore 0x112 to zero */
+	stat = regmap_write(priv->regmap, IVM6303_ANALOG_REG2_FORCE, 0);
+	if (stat < 0)
+		pr_err("Error restoring 0x112 to 0\n");
 	/* Do autocal if needed */
 	if (en && !priv->autocal_done) {
 		stat = _do_autocal(priv);
