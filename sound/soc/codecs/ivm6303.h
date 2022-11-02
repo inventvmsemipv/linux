@@ -71,6 +71,7 @@ struct ivm6303_priv {
 	/* Total number of stream slots */
 	int			slots;
 	int			slot_width;
+	int			capture_only;
 	int			pll_locked_poll_attempts;
 	int			clkmon_ok_attempts;
 	/* tdm_settings_1 register */

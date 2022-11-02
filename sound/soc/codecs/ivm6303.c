@@ -2326,6 +2326,10 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 		dev_err(component->dev, "Max 1 rx slots supported\n");
 		return -EINVAL;
 	}
+	if (!rx_mask) {
+		dev_info(component->dev, "Configured for capture only\n");
+		priv->capture_only = 1;
+	}
 	switch (slot_width) {
 	case 16:
 		w = 1 << I_SLOT_SIZE_SHIFT;
@@ -2523,7 +2527,8 @@ static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 	switch(cmd) {
 	case SNDRV_PCM_TRIGGER_START:
 		dev_dbg(component->dev, "%s, start trigger cmd\n", __func__);
-		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK &&
+		    !priv->capture_only) {
 			clear_bit(WAITING_FOR_SPEAKER_OFF, &priv->flags);
 			set_bit(WAITING_FOR_SPEAKER_ON, &priv->flags);
 		}
@@ -2538,6 +2543,7 @@ static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 		 */
 		dev_dbg(component->dev, "%s, stop trigger cmd\n", __func__);
 		if  ((substream->stream == SNDRV_PCM_STREAM_PLAYBACK) &&
+		     !priv->capture_only && \
 		     !test_and_set_bit(WAITING_FOR_SPEAKER_OFF,
 				       &priv->flags))
 			ret = queue_work(priv->wq,
