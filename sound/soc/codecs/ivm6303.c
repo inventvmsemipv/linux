@@ -2298,6 +2298,72 @@ static int ivm6303_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	return 0;
 }
 
+static int _assign_slot(struct ivm6303_priv *priv, bool tx, unsigned int ch,
+			unsigned int slot)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	unsigned int base_en = tx ? IVM6303_TDM_SETTINGS(0xb) :
+		IVM6303_TDM_SETTINGS(0x5);
+	unsigned int ch_shift = tx ? 1 : 0;
+	unsigned int r = base_en + (ch << ch_shift);
+	unsigned int slots_mask = tx ? O_SLOT_CHAN_MASK : I_SLOT_CHAN_MASK;
+	const char *what = tx ? "tx" : "rx";
+
+	dev_dbg(dev, "%s: updating reg %2x, msk %2x, val %2x",
+		what, r, slots_mask, slot);
+	return regmap_update_bits(priv->regmap, r, slots_mask, slot);
+}
+
+static int _program_channels(struct ivm6303_priv *priv,
+			     bool tx, unsigned int msk)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	unsigned int ch;
+	unsigned int nch = tx ? 4 : 5, lowest_disabled_ch;
+	const char *what = tx ? "tx" : "rx";
+	int ret, i;
+
+	lowest_disabled_ch = hweight32(msk) ? hweight32(msk) - 1 : 0;
+
+	if (lowest_disabled_ch >= nch) {
+		dev_err(dev, "requested more %s channels than available", what);
+		return -EINVAL;
+	}
+	/* Disable unused channels first */
+	for (ch = lowest_disabled_ch; ch < nch && !ret; ch++)
+		ret = _assign_slot(priv, tx, ch, 0);
+	if (ret)
+		return ret;
+
+	/*
+	 * And finally program the other ones. Take channels sequentially and
+	 * assign them to the enabled slots
+	 */
+	ch = 0;
+	while ((i = ffs(msk))) {
+		/* Slot i is active and assigned to channel ch */
+		/* i ranges from 1 to 31, 0 means not assigned */
+		ret = _assign_slot(priv, tx, ch, i);
+		if (ret < 0) {
+			dev_err(dev, "error setting up tx slot\n");
+			break;
+		}
+		msk &= ~(1 << (i - 1));
+		ch++;
+	}
+	return ret;
+}
+
+static int _program_tx_channels(struct ivm6303_priv *priv, unsigned int msk)
+{
+	return _program_channels(priv, true, msk);
+}
+
+static int _program_rx_channels(struct ivm6303_priv *priv, unsigned int msk)
+{
+	return _program_channels(priv, false, msk);
+}
+
 static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 				unsigned int tx_mask,
 				unsigned int rx_mask,
@@ -2305,7 +2371,7 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 {
 	struct snd_soc_component *component = dai->component;
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
-	unsigned int w, i, ch;
+	unsigned int w;
 	int stat;
 
 	if (!slots) {
@@ -2369,64 +2435,10 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 		dev_err(component->dev, "error writing output slot size\n");
 		goto err;
 	}
-	/* Disable tx for all channels first */
-	for (ch = 0; ch < 4; ch++) {
-		dev_dbg(component->dev, "%s, tx reset: writing reg %2x, val 0",
-			__func__, IVM6303_TDM_SETTINGS(0xb) + (ch << 1));
-		stat = regmap_update_bits(priv->regmap,
-					  IVM6303_TDM_SETTINGS(0xb) + (ch << 1),
-					  O_SLOT_CHAN_MASK, 0x0);
-		if (stat < 0) {
-			dev_err(component->dev,
-				"error resetting output_slots\n");
-			goto err;
-		}
-	}
-	ch = 0;
-	while ((i = ffs(tx_mask))) {
-		/* Tx slot i is active and assigned to channel ch */
-		/* i ranges from 1 to 31, 0 means not assigned */
-		dev_dbg(component->dev, "%s: writing reg %2x, val %2x",
-			__func__, IVM6303_TDM_SETTINGS(0xb) + (ch << 1), i);
-		stat = regmap_update_bits(priv->regmap,
-					  IVM6303_TDM_SETTINGS(0xb) + (ch << 1),
-					  O_SLOT_CHAN_MASK, i);
-		if (stat < 0) {
-			dev_err(component->dev, "error setting up tx slot\n");
-			goto err;
-		}
-		tx_mask &= ~(1 << (i - 1));
-		ch++;
-	}
-	/* Disable rx for all channels first */
-	for (ch = 0; ch < 5; ch++) {
-		dev_dbg(component->dev, "%s, RX  reset: writing reg %2x, val 0",
-			__func__, IVM6303_TDM_SETTINGS(0x5) + ch);
-		stat = regmap_update_bits(priv->regmap,
-					  IVM6303_TDM_SETTINGS(0x5) + ch,
-					  I_SLOT_CHAN_MASK, 0x0);
-		if (stat < 0) {
-			dev_err(component->dev,
-				"error resetting output_slots\n");
-			goto err;
-		}
-	}
-	ch = 0;
-	while ((i = ffs(rx_mask))) {
-		/* Rx slot i is active and assigned to channel ch */
-		/* i ranges from 1 to 31, 0 means not assigned */
-		dev_dbg(component->dev, "%s: writing reg %2x, val %2x",
-			__func__, IVM6303_TDM_SETTINGS(0x5) + ch, i);
-		stat = regmap_update_bits(priv->regmap,
-					  IVM6303_TDM_SETTINGS(0x5) + ch,
-					  I_SLOT_CHAN_MASK, i);
-		if (stat < 0) {
-			dev_err(component->dev, "error setting up tx slot\n");
-			goto err;
-		}
-		rx_mask &= ~(1 << (i - 1));
-		ch++;
-	}
+	stat = _program_tx_channels(priv, tx_mask);
+	if (stat < 0)
+		goto err;
+	stat = _program_rx_channels(priv, rx_mask);
 err:
 	mutex_unlock(&priv->regmap_mutex);
 	return stat;
