@@ -2369,15 +2369,28 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 		dev_err(component->dev, "error writing output slot size\n");
 		goto err;
 	}
+	/* Disable tx for all channels first */
+	for (ch = 0; ch < 4; ch++) {
+		dev_dbg(component->dev, "%s, tx reset: writing reg %2x, val 0",
+			__func__, IVM6303_TDM_SETTINGS(0xb) + (ch << 1));
+		stat = regmap_update_bits(priv->regmap,
+					  IVM6303_TDM_SETTINGS(0xb) + (ch << 1),
+					  O_SLOT_CHAN_MASK, 0x0);
+		if (stat < 0) {
+			dev_err(component->dev,
+				"error resetting output_slots\n");
+			goto err;
+		}
+	}
 	ch = 0;
 	while ((i = ffs(tx_mask))) {
 		/* Tx slot i is active and assigned to channel ch */
 		/* i ranges from 1 to 31, 0 means not assigned */
 		dev_dbg(component->dev, "%s: writing reg %2x, val %2x",
 			__func__, IVM6303_TDM_SETTINGS(0xb) + (ch << 1), i);
-		stat = regmap_write(priv->regmap,
-				    IVM6303_TDM_SETTINGS(0xb) + (ch << 1),
-				    i);
+		stat = regmap_update_bits(priv->regmap,
+					  IVM6303_TDM_SETTINGS(0xb) + (ch << 1),
+					  O_SLOT_CHAN_MASK, i);
 		if (stat < 0) {
 			dev_err(component->dev, "error setting up tx slot\n");
 			goto err;
@@ -2385,15 +2398,28 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 		tx_mask &= ~(1 << (i - 1));
 		ch++;
 	}
+	/* Disable rx for all channels first */
+	for (ch = 0; ch < 5; ch++) {
+		dev_dbg(component->dev, "%s, RX  reset: writing reg %2x, val 0",
+			__func__, IVM6303_TDM_SETTINGS(0x5) + ch);
+		stat = regmap_update_bits(priv->regmap,
+					  IVM6303_TDM_SETTINGS(0x5) + ch,
+					  I_SLOT_CHAN_MASK, 0x0);
+		if (stat < 0) {
+			dev_err(component->dev,
+				"error resetting output_slots\n");
+			goto err;
+		}
+	}
 	ch = 0;
 	while ((i = ffs(rx_mask))) {
 		/* Rx slot i is active and assigned to channel ch */
 		/* i ranges from 1 to 31, 0 means not assigned */
 		dev_dbg(component->dev, "%s: writing reg %2x, val %2x",
-			__func__, IVM6303_TDM_SETTINGS(0x5) + (ch << 1), i);
-		stat = regmap_write(priv->regmap,
-				    IVM6303_TDM_SETTINGS(0x5) + (ch << 1),
-				    i);
+			__func__, IVM6303_TDM_SETTINGS(0x5) + ch, i);
+		stat = regmap_update_bits(priv->regmap,
+					  IVM6303_TDM_SETTINGS(0x5) + ch,
+					  I_SLOT_CHAN_MASK, i);
 		if (stat < 0) {
 			dev_err(component->dev, "error setting up tx slot\n");
 			goto err;
