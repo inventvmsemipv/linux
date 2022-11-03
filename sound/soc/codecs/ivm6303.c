@@ -232,6 +232,8 @@
 #define MAX_PLL_LOCKED_POLL_ATTS (100)
 #define MAX_CLK_MON_OK_ATTS (100)
 
+#define VSIS_ON_WAIT_TIME ((HZ)/10)
+
 enum ivm_tdm_size {
 	IVM_TDM_SIZE_16 = 1,
 	IVM_TDM_SIZE_20 = 0,
@@ -503,6 +505,8 @@ static int run_fw_section_sync(struct snd_soc_component *component, int s)
 	return ret;
 }
 
+/* handle deferred Vs enable */
+
 /*
  * Assumes regmap lock taken
  * Saves current status of bit IVM6303_ENABLES_SETTINGS(5).SPK_EN
@@ -633,12 +637,45 @@ int playback_mode_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
 	return 0;
 }
 
+static int _set_vsis_en(struct ivm6303_priv *priv, int on)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	int ret = regmap_update_bits(priv->regmap,
+				     IVM6303_VISENSE_SETTINGS(1),
+				     VIS_DIG_EN_MASK,
+				     on ? VIS_DIG_EN_MASK : 0);
+	if (ret < 0)
+		dev_err(dev, "error turning Vs/Is %s\n", on ? "On" : "Off");
+	return ret;
+}
+
+static void vsis_enable_handler(struct work_struct * work)
+{
+	struct ivm6303_priv *priv = container_of(work, struct ivm6303_priv,
+						 vsis_enable_work.work);
+	struct device *dev = &priv->i2c_client->dev;
+	int stat;
+
+	dev_dbg(dev, "%s called", __func__);
+	if (!test_and_clear_bit(WAITING_FOR_VSIS_ON, &priv->flags)) {
+		dev_dbg(dev, "Vs/Is already enabled");
+		return;
+	}
+	mutex_lock(&priv->regmap_mutex);
+	stat = _set_vsis_en(priv, 1);
+	mutex_unlock(&priv->regmap_mutex);
+	if (stat)
+		dev_err(dev, "Error enabling Vs/Is");
+	else
+		dev_dbg(dev, "Vs/Is enabled OK");
+}
+
 int adc_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
 {
 	struct snd_soc_component *component =
 		snd_soc_dapm_to_component(w->dapm);
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
-	int ret = 0, on = 0;
+	int ret = 0, on = 0, deferred;
 
 	pr_debug("%s: event %d, stream %s\n", __func__, e, w->sname);
 
@@ -656,14 +693,29 @@ int adc_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
 			__func__, e);
 		ret = -EINVAL;
 	}
-	if (!ret) {
-		ret = regmap_update_bits(priv->regmap,
-					 IVM6303_VISENSE_SETTINGS(1),
-					 VIS_DIG_EN_MASK,
-					 on ? VIS_DIG_EN_MASK : 0);
-		if (ret < 0)
-			dev_err(component->dev, "error turning Vs/Is %s\n",
-				on ? "On" : "Off");
+	if (ret)
+		return ret;
+	/*
+	 * If we're capture only, then we can avoid deferring Vs/Is enable
+	 * Also, if speaker has already been turned on, we can enable Vs/Is
+	 * immediately
+	 */
+	deferred = !priv->capture_only &&
+		!test_bit(SPEAKER_ENABLED, &priv->flags);
+	if (!on || !deferred) {
+		clear_bit(WAITING_FOR_VSIS_ON, &priv->flags);
+		ret = _set_vsis_en(priv, on);
+	} else {
+		/*
+		 * Avoid turning Vs/Is on immediately if playback is possible.
+		 * The reason for this is that turning the speaker on with
+		 * Vs/Is enabled can trigger a pop. So wait and see if a
+		 * playback stream arrives. If it doesn't within 100ms, enable
+		 * Vs/Is. This is really UGLY !
+		 */
+		set_bit(WAITING_FOR_VSIS_ON, &priv->flags);
+		queue_delayed_work(priv->wq, &priv->vsis_enable_work,
+				   VSIS_ON_WAIT_TIME);
 	}
 	pr_debug("%s returns\n", __func__);
 	return ret;
@@ -1237,23 +1289,12 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 	struct device *dev = &priv->i2c_client->dev;
 	static const u8 force_intfb_vals[] = { 0x70, 0x60, 0x01, };
 	static const u8 leave_intfb_vals[] = { 0x00, 0x00, };
-	static unsigned int vsis_en = 0;
 	int stat;
 
 	if (!en) {
 		_do_mute(priv, 1);
 		msleep(100);
 	}
-
-	stat = regmap_read(priv->regmap, IVM6303_VISENSE_SETTINGS(1),
-			   &vsis_en);
-	if (stat < 0)
-		pr_err("Error reading VsIs enable bits\n");
-
-	stat = regmap_update_bits(priv->regmap, IVM6303_VISENSE_SETTINGS(1),
-				  VIS_DIG_EN_MASK, 0);
-	if (stat < 0)
-		pr_err("Error disabling VsIs\n");
 
 	/* Force internal feedback */
 	stat = regmap_bulk_write(priv->regmap, IVM6303_FORCE_INTFB,
@@ -1288,10 +1329,11 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 			priv->autocal_done = 1;
 	}
 
-	/* Restore Vs/Is enable */
-	stat = regmap_write(priv->regmap, IVM6303_VISENSE_SETTINGS(1), vsis_en);
-	if (stat < 0)
-		pr_err("Error reading VsIs enable bits\n");
+	if (test_and_clear_bit(WAITING_FOR_VSIS_ON, &priv->flags)) {
+		stat = _set_vsis_en(priv, 1);
+		if (stat < 0)
+			pr_err("Error reading VsIs enable bits\n");
+	}
 
 	/* Finally leave internal feedback */
 	stat = regmap_bulk_write(priv->regmap, IVM6303_FORCE_INTFB,
@@ -1587,6 +1629,7 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 	INIT_DELAYED_WORK(&priv->pll_locked_work, pll_locked_handler);
 	INIT_WORK(&priv->fw_exec_work, fw_exec_handler);
 	INIT_WORK(&priv->speaker_deferred_work, speaker_deferred_handler);
+	INIT_DELAYED_WORK(&priv->vsis_enable_work, vsis_enable_handler);
 	ret = run_fw_section_sync(component, IVM6303_PROBE_WRITES);
 	if (ret < 0)
 		return ret;
@@ -1601,6 +1644,7 @@ static void ivm6303_component_remove(struct snd_soc_component *component)
 
 	ivm6303_cleanup_debugfs(component);
 	cancel_delayed_work_sync(&priv->pll_locked_work);
+	cancel_delayed_work_sync(&priv->vsis_enable_work);
 	flush_workqueue(priv->wq);
 	unload_fw(component);
 }

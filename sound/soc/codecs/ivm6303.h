@@ -60,6 +60,7 @@ enum ivm6303_clk_status {
 struct ivm6303_priv {
 	struct workqueue_struct	*wq;
 	struct delayed_work	pll_locked_work;
+	struct delayed_work	vsis_enable_work;
 	struct work_struct	speaker_deferred_work;
 	struct work_struct	fw_exec_work;
 	struct completion	fw_section_completion;
@@ -90,6 +91,7 @@ struct ivm6303_priv {
 #define WAITING_FOR_SPEAKER_ON 2
 #define SPEAKER_ENABLED 3
 #define DEFERRED_MUTE 4
+#define WAITING_FOR_VSIS_ON 5
 	unsigned long		flags;
 	unsigned int		saved_volume;
 	int			muted;
