@@ -1703,7 +1703,10 @@ static void ivm6303_component_remove(struct snd_soc_component *component)
 	cancel_delayed_work_sync(&priv->pll_locked_work);
 	cancel_delayed_work_sync(&priv->vsis_enable_work);
 	flush_workqueue(priv->wq);
+	priv->autocal_done = priv->flags = priv->muted = priv->capture_only = 0;
+	atomic_set(&priv->clk_status, 0);
 	unload_fw(component);
+	regcache_drop_region(priv->regmap, 0, 0x1ff);
 }
 
 static const char *ch3_output_mux_texts[] = {
