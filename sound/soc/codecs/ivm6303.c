@@ -123,6 +123,9 @@
 # define I_DL_SHIFT			6
 # define I_DL_MASK			(0x3 << I_DL_SHIFT)
 
+/* TDM_SETTINGS(27) */
+# define TDM_MONO_MIX_SHIFT		4
+
 #define IVM6303_VOLUME			0x61
 
 #define IVM6303_VOLUME_STATUS(x)	((x) + 0x6c)
@@ -721,11 +724,63 @@ int adc_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
 	return ret;
 }
 
+static const char *tdm_mono_mix_ch1_texts[] = {
+	"0 dB",
+	"-6 dB",
+	"-12 dB",
+	"-18 dB",
+};
+
+static unsigned int tdm_mono_mix_ch1_values[] = {
+	0, 1, 2, 3,
+};
+
+static const char *tdm_mono_mix_ch2_texts[] = {
+	"0 dB",
+	"-6 dB",
+	"-12 dB",
+	"-18 dB",
+	"OFF"
+};
+
+static unsigned int tdm_mono_mix_ch2_values[] = {
+	4, 5, 6, 7, 0,
+};
+
+static SOC_VALUE_ENUM_SINGLE_DECL(tdm_mono_mix_ch1_enum,
+				  IVM6303_TDM_SETTINGS(27),
+				  /* shift */
+				  0,
+				  /* mask */
+				  0x3,
+				  tdm_mono_mix_ch1_texts,
+				  tdm_mono_mix_ch1_values);
+
+static SOC_VALUE_ENUM_SINGLE_DECL(tdm_mono_mix_ch2_enum,
+				  IVM6303_TDM_SETTINGS(27),
+				  /* shift */
+				  2,
+				  /* mask */
+				  0x7,
+				  tdm_mono_mix_ch2_texts,
+				  tdm_mono_mix_ch2_values);
+
+static const struct snd_kcontrol_new tdm_mono_mix_controls[] = {
+	SOC_DAPM_ENUM("tdm mono mix ch1 gain", tdm_mono_mix_ch1_enum),
+	SOC_DAPM_ENUM("tdm mono mix ch2 gain", tdm_mono_mix_ch2_enum),
+};
+
 static const struct snd_soc_dapm_widget ivm6303_dapm_widgets[] = {
 	/* Analog Output */
 	SND_SOC_DAPM_OUTPUT("SPK"),
-	/* TDM INPUT (Playback) */
-	SND_SOC_DAPM_AIF_IN("AIF TDM IN", "TDM Playback", 0,
+	/* Mono mixer (digital in -> class D stereo to mono) */
+	SND_SOC_DAPM_MIXER("MONOMIX", SND_SOC_NOPM, 0, 0,
+			   tdm_mono_mix_controls,
+			   ARRAY_SIZE(tdm_mono_mix_controls)),
+	/* TDM INPUT(s) (Playback) */
+	SND_SOC_DAPM_AIF_IN("AIF TDM IN CH1", "TDM Playback", 0,
+			    SND_SOC_NOPM, 0, 0),
+	SND_SOC_DAPM_AIF_IN("AIF TDM IN CH2", "TDM Playback", 0,
 			    SND_SOC_NOPM, 0, 0),
 	/* I2S INPUT (Playback) */
 	SND_SOC_DAPM_AIF_IN("AIF I2S IN", "I2S Playback", 0,
@@ -749,7 +804,9 @@ static const struct snd_soc_dapm_widget ivm6303_dapm_widgets[] = {
 
 static const struct snd_soc_dapm_route ivm6303_dapm_routes[] = {
 	/* sink | control | source */
-	{"CLASS-D", NULL, "AIF TDM IN"},
+	{"MONOMIX", NULL, "AIF TDM IN CH1"},
+	{"MONOMIX", NULL, "AIF TDM IN CH2"},
+	{"CLASS-D", NULL, "MONOMIX"},
 	{"CLASS-D", NULL, "AIF I2S IN"},
 	{"SPK", NULL, "CLASS-D"},
 	{"VSIS-ADC", NULL, "VSIS-IN"},
@@ -1721,6 +1778,8 @@ static struct snd_kcontrol_new ivm6303_ctrls[] = {
 		   1, 0),
 	SOC_ENUM("ch3 output mux", ch3_output_mux_enum),
 	SOC_ENUM("ch4 output mux", ch4_output_mux_enum),
+	SOC_ENUM("monomix ch1 gain", tdm_mono_mix_ch1_enum),
+	SOC_ENUM("monomix ch2 gain", tdm_mono_mix_ch2_enum),
 };
 
 static struct snd_soc_component_driver soc_component_dev_ivm6303 = {
@@ -2432,7 +2491,7 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 		dev_err(component->dev, "Max 4 tx slots supported\n");
 		return -EINVAL;
 	}
-	if (hweight32(rx_mask) > 1) {
+	if (hweight32(rx_mask) > 2) {
 		dev_err(component->dev, "Max 1 rx slots supported\n");
 		return -EINVAL;
 	}
@@ -2734,7 +2793,7 @@ static struct snd_soc_dai_driver ivm6303_dais[] = {
 		.playback = {
 			.stream_name = "TDM Playback",
 			.channels_min = 1,
-			.channels_max = 4,
+			.channels_max = 2,
 			.rates = IVM6303_RATES,
 			.formats = IVM6303_FORMATS,
 		},
