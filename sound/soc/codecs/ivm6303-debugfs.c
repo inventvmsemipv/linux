@@ -52,6 +52,7 @@ void ivm6303_init_debugfs(struct snd_soc_component *component)
 	debugfs_create_ulong("flags", 0444, root, &priv->flags);
 	debugfs_create_u32("saved_volume", 0444, root, &priv->saved_volume);
 	debugfs_create_u32("muted", 0444, root, &priv->muted);
+	debugfs_create_u32("autocal_done", 0444, root, &priv->autocal_done);
 	debugfs_create_file("force-autocal", 0222, root, priv,
 			    &force_autocal_fops);
 }
