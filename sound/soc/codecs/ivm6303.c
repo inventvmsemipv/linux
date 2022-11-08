@@ -1346,6 +1346,7 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 	struct device *dev = &priv->i2c_client->dev;
 	static const u8 force_intfb_vals[] = { 0x70, 0x60, 0x01, };
 	static const u8 leave_intfb_vals[] = { 0x00, 0x00, };
+	unsigned int v;
 	int stat;
 
 	if (!en) {
@@ -1404,8 +1405,8 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 		set_bit(SPEAKER_ENABLED, &priv->flags);
 	} else
 		clear_bit(SPEAKER_ENABLED, &priv->flags);
-	/* TEMPORARY: switch back to page 0 */
-	regmap_write(priv->regmap, IVM6303_SYSTEM_CTRL, 1);
+	/* TEMPORARY: switch back to page 0, by dummy reading a volatile reg */
+	regmap_read(priv->regmap, IVM6303_STATUS(1), &v);
 }
 
 static void _turn_speaker_on(struct ivm6303_priv *priv)
