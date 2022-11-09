@@ -410,6 +410,12 @@ static int _do_regs_assign_seq(struct ivm6303_priv *priv,
 			dev_err(dev, "error writing to register %u", r->addr);
 			break;
 		}
+		if ((r->addr == IVM6303_SYSTEM_CTRL) &&
+		    (r->val & IVM6303_SOFTWARE_RESET)) {
+			/* Doing reset, invalidate cache */
+			dev_dbg(dev, "reset performed, invalidating regcache");
+			regcache_drop_region(priv->regmap, 0, 0x1ff);
+		}
 		if (r->delay_us) {
 			dev_dbg(dev, "delaying %u usecs\n", r->delay_us);
 			if (r->delay_us > 1000)
