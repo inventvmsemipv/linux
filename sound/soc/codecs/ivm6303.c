@@ -399,12 +399,15 @@ static int _do_regs_assign_seq(struct ivm6303_priv *priv,
 	struct ivm6303_register *r;
 	int i, ret = 0;
 
+	dev_dbg(dev, "%s starts", __func__);
 	for (i = 0, r = regs; i < nsteps; i++, r++) {
 		if (i >= IVM6303_SECTION_MAX_REGISTERS) {
 			dev_err(dev, "%s, too many registers\n", __func__);
 			ret = -ENOMEM;
 			break;
 		}
+		dev_dbg(dev, "%s: writing %u to reg %u", __func__,
+			r->val, r->addr);
 		ret = regmap_write(priv->regmap, r->addr, r->val);
 		if (ret < 0) {
 			dev_err(dev, "error writing to register %u", r->addr);
@@ -423,6 +426,7 @@ static int _do_regs_assign_seq(struct ivm6303_priv *priv,
 			udelay(r->delay_us % 1000);
 		}
 	}
+	dev_dbg(dev, "%s ends", __func__);
 	return ret;
 }
 
