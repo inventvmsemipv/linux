@@ -748,7 +748,7 @@ static unsigned int tdm_mono_mix_ch2_values[] = {
 };
 
 static SOC_VALUE_ENUM_SINGLE_DECL(tdm_mono_mix_ch1_enum,
-				  IVM6303_TDM_SETTINGS(27),
+				  IVM6303_TDM_SETTINGS(28),
 				  /* shift */
 				  0,
 				  /* mask */
@@ -757,7 +757,7 @@ static SOC_VALUE_ENUM_SINGLE_DECL(tdm_mono_mix_ch1_enum,
 				  tdm_mono_mix_ch1_values);
 
 static SOC_VALUE_ENUM_SINGLE_DECL(tdm_mono_mix_ch2_enum,
-				  IVM6303_TDM_SETTINGS(27),
+				  IVM6303_TDM_SETTINGS(28),
 				  /* shift */
 				  2,
 				  /* mask */
