@@ -1718,6 +1718,7 @@ static void ivm6303_component_remove(struct snd_soc_component *component)
 	cancel_delayed_work_sync(&priv->vsis_enable_work);
 	flush_workqueue(priv->wq);
 	priv->autocal_done = priv->flags = priv->muted = priv->capture_only = 0;
+	priv->tdm_settings_1 = -1;
 	atomic_set(&priv->clk_status, 0);
 	unload_fw(component);
 	regcache_drop_region(priv->regmap, 0, 0x1ff);
@@ -2915,7 +2916,6 @@ static int ivm6303_probe(struct i2c_client *client)
 	mutex_init(&priv->regmap_mutex);
 
 	priv->i2c_client = client;
-	priv->tdm_settings_1 = -1;
 	atomic_set(&priv->clk_status, STOPPED);
 
 	priv->regmap = devm_regmap_init_i2c(priv->i2c_client, &regmap_config);
