@@ -1693,7 +1693,10 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 		return ret;
 	ivm6303_init_debugfs(component);
 	/* Initialize volume */
-	return regmap_read(priv->regmap, IVM6303_VOLUME, &priv->saved_volume);
+	mutex_lock(&priv->regmap_mutex);
+	ret = regmap_read(priv->regmap, IVM6303_VOLUME, &priv->saved_volume);
+	mutex_unlock(&priv->regmap_mutex);
+	return ret;
 }
 
 static void ivm6303_component_remove(struct snd_soc_component *component)
