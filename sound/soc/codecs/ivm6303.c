@@ -1717,6 +1717,8 @@ static void ivm6303_component_remove(struct snd_soc_component *component)
 	cancel_delayed_work_sync(&priv->pll_locked_work);
 	cancel_delayed_work_sync(&priv->vsis_enable_work);
 	flush_workqueue(priv->wq);
+	destroy_workqueue(priv->wq);
+	priv->wq = NULL;
 	priv->autocal_done = priv->flags = priv->muted = priv->capture_only = 0;
 	priv->tdm_settings_1 = -1;
 	atomic_set(&priv->clk_status, 0);
