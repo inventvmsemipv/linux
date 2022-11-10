@@ -717,7 +717,9 @@ int adc_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
 		!test_bit(SPEAKER_ENABLED, &priv->flags);
 	if (!on || !deferred) {
 		clear_bit(WAITING_FOR_VSIS_ON, &priv->flags);
+		mutex_lock(&priv->regmap_mutex);
 		ret = _set_vsis_en(priv, on);
+		mutex_unlock(&priv->regmap_mutex);
 	} else {
 		/*
 		 * Avoid turning Vs/Is on immediately if playback is possible.
