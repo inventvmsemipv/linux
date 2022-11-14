@@ -399,48 +399,34 @@ static int _do_regs_assign_seq(struct ivm6303_priv *priv,
 	struct ivm6303_register *r;
 	int i, ret = 0;
 
-	dev_dbg(dev, "%s starts", __func__);
 	for (i = 0, r = regs; i < nsteps; i++, r++) {
 		if (i >= IVM6303_SECTION_MAX_REGISTERS) {
 			dev_err(dev, "%s, too many registers\n", __func__);
 			ret = -ENOMEM;
 			break;
 		}
-		dev_dbg(dev, "%s: writing %u to reg %u", __func__,
-			r->val, r->addr);
 		ret = regmap_write(priv->regmap, r->addr, r->val);
 		if (ret < 0) {
 			dev_err(dev, "error writing to register %u", r->addr);
 			break;
 		}
 		if ((r->addr == IVM6303_SYSTEM_CTRL) &&
-		    (r->val & IVM6303_SOFTWARE_RESET)) {
+		    (r->val & IVM6303_SOFTWARE_RESET))
 			/* Doing reset, invalidate cache */
-			dev_dbg(dev, "reset performed, invalidating regcache");
 			regcache_drop_region(priv->regmap, 0, 0x1ff);
-		}
 		if (r->delay_us) {
-			dev_dbg(dev, "delaying %u usecs\n", r->delay_us);
 			if (r->delay_us > 1000)
 				mdelay(r->delay_us / 1000);
 			udelay(r->delay_us % 1000);
 		}
 	}
-	dev_dbg(dev, "%s ends", __func__);
 	return ret;
 }
 
 static int _run_fw_section(struct ivm6303_priv *priv,
 			   struct ivm6303_fw_section *section)
 {
-	struct device *dev = &priv->i2c_client->dev;
-	int ret;
-
-	dev_dbg(dev, "%s entered, section = %ld\n", __func__,
-		section - priv->fw_sections);
-	ret = _do_regs_assign_seq(priv, section->nsteps, section->regs);
-	dev_dbg(dev, "leaving %s, ret = %d\n", __func__, ret);
-	return ret;
+	return _do_regs_assign_seq(priv, section->nsteps, section->regs);
 }
 
 /*
@@ -455,7 +441,7 @@ static void fw_exec_handler(struct work_struct *work)
 	struct ivm6303_fw_section *section;
 
 	if (s < 0) {
-		dev_dbg(dev, "%s: section index is invalid\n", __func__);
+		dev_err(dev, "%s: section index is invalid\n", __func__);
 		goto end;
 	}
 	section = &priv->fw_sections[s];
@@ -473,24 +459,18 @@ end:
 static int run_fw_section(struct snd_soc_component *component, int s)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
-	struct device *dev = &priv->i2c_client->dev;
 
-	dev_dbg(dev, "%s entered, s = %d\n", __func__, s);
 	if (atomic_cmpxchg(&priv->running_section, IVM6303_NO_SECTION, s)) {
 		struct ivm6303_fw_section *section = &priv->fw_sections[s];
 
-		if (section->can_be_aborted) {
-			dev_dbg(dev, "%s: section can be aborted\n", __func__);
+		if (section->can_be_aborted)
 			cancel_work_sync(&priv->fw_exec_work);
-		} else {
-			dev_dbg(dev, "%s: waiting for completion\n", __func__);
+		else
 			wait_for_completion(&priv->fw_section_completion);
-		}
 		atomic_set(&priv->running_section, s);
 	}
 	reinit_completion(&priv->fw_section_completion);
 	/* Start */
-	dev_dbg(dev, "%s: queueing work\n", __func__);
 	return queue_work(priv->wq, &priv->fw_exec_work);
 }
 
@@ -565,7 +545,6 @@ static int playback_mode_control_get(struct snd_kcontrol *kcontrol,
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(c);
 	unsigned int v;
 
-	dev_dbg(c->dev, "%s called\n", __func__);
 	switch(priv->playback_mode_fw_section) {
 	case IVM6303_SPEAKER_MODE:
 		v = 1;
@@ -588,8 +567,6 @@ static int playback_mode_control_put(struct snd_kcontrol *kcontrol,
 	int ret;
 	unsigned int spkstat;
 
-	dev_dbg(c->dev, "%s called (%ld)\n", __func__,
-		ucontrol->value.integer.value[0]);
 	switch(ucontrol->value.integer.value[0]) {
 	case 0:
 		priv->playback_mode_fw_section = IVM6303_RECEIVER_MODE;
@@ -625,8 +602,6 @@ int playback_mode_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
 		snd_soc_dapm_to_component(w->dapm);
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 	int ret = 0;
-
-	pr_debug("%s: event %d, stream %s\n", __func__, e, w->sname);
 
 	switch(e) {
 	case SND_SOC_DAPM_PRE_PMU:
@@ -669,18 +644,13 @@ static void vsis_enable_handler(struct work_struct * work)
 	struct device *dev = &priv->i2c_client->dev;
 	int stat;
 
-	dev_dbg(dev, "%s called", __func__);
-	if (!test_and_clear_bit(WAITING_FOR_VSIS_ON, &priv->flags)) {
-		dev_dbg(dev, "Vs/Is already enabled");
+	if (!test_and_clear_bit(WAITING_FOR_VSIS_ON, &priv->flags))
 		return;
-	}
 	mutex_lock(&priv->regmap_mutex);
 	stat = _set_vsis_en(priv, 1);
 	mutex_unlock(&priv->regmap_mutex);
 	if (stat)
 		dev_err(dev, "Error enabling Vs/Is");
-	else
-		dev_dbg(dev, "Vs/Is enabled OK");
 }
 
 int adc_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
@@ -689,8 +659,6 @@ int adc_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
 		snd_soc_dapm_to_component(w->dapm);
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 	int ret = 0, on = 0, deferred;
-
-	pr_debug("%s: event %d, stream %s\n", __func__, e, w->sname);
 
 	switch(e) {
 	case SND_SOC_DAPM_PRE_PMU:
@@ -732,7 +700,6 @@ int adc_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
 		queue_delayed_work(priv->wq, &priv->vsis_enable_work,
 				   VSIS_ON_WAIT_TIME);
 	}
-	pr_debug("%s returns\n", __func__);
 	return ret;
 }
 
@@ -992,11 +959,8 @@ static int load_fw(struct snd_soc_component *component)
 			val = to_val(*w);
 		if (is_new_section(*w)) {
 			section = to_val(*w);
-			dev_dbg(component->dev, "firmware: new section %u\n",
-				section);
 			if (section > IVM6303_PROBE_WRITES) {
 				ret = alloc_fw_section(component, section);
-				dev_dbg(component->dev, "alloc new section\n");
 				if (ret < 0)
 					return ret;
 				/* Start new section from scratch */
@@ -1130,8 +1094,6 @@ static int _get_avg_vsense(struct ivm6303_priv *priv, long *out)
 		v += w;
 	}
 	*out = v / VSENSE_AVG_SAMPLES;
-	dev_dbg(&priv->i2c_client->dev, "%s, avg vsense = %ld\n", __func__,
-		*out);
 	return ret;
 }
 
@@ -1151,14 +1113,11 @@ static int _vsense_check_loop(struct ivm6303_priv *priv, long az_avg,
 		if (ret < 0)
 			return ret;
 		error = avg_vsns - az_avg;
-		dev_dbg(dev, "%s: error = %ld\n", __func__, error);
 		if (abs(error) < MAX_ERROR_THR)
 			break;
 		/* FIXME !!!!!! */
 		/* Delta(Offset)/Delta(az) rate of change is 256/30 */
 		gain_offs_com_v += error << 3;
-		dev_dbg(dev, "%s: writing gain_offs_com_v = %ld\n",
-			__func__, gain_offs_com_v);
 		ret = _ivm6303_mfr_write(priv,
 					 IVM6303_MFR_GAIN_100_OFFS_COMP,
 					 gain_offs_com_v);
@@ -1281,7 +1240,6 @@ static void _post_tdm_apply_hack(struct ivm6303_priv *priv)
 	unsigned int v;
 	int stat;
 
-	dev_dbg(dev, "TDM APPLY HACK\n");
 	stat = regmap_read(priv->regmap, IVM6303_TDM_SETTINGS(1), &v);
 	if (stat < 0)
 		dev_err(dev, "error reading tdm settings 1\n");
@@ -1326,7 +1284,6 @@ static int _set_dsp_enable(struct ivm6303_priv *priv, int en)
 
 static int _do_mute(struct ivm6303_priv *priv, int mute)
 {
-	struct device *dev = &priv->i2c_client->dev;
 	int doit, ret;
 
 	doit = mute != priv->muted ||
@@ -1334,19 +1291,13 @@ static int _do_mute(struct ivm6303_priv *priv, int mute)
 	if (doit && mute) {
 		ret = regmap_read(priv->regmap, IVM6303_VOLUME,
 				  &priv->saved_volume);
-		dev_dbg(dev, "%s(): saved_volume = %u\n",
-			__func__, priv->saved_volume);
 		if (ret < 0)
 			goto err;
-		dev_dbg(dev, "%s(): writing 0 to volume\n", __func__);
 		ret = regmap_write(priv->regmap, IVM6303_VOLUME, 0);
 	}
-	if (doit && !mute) {
-		dev_dbg(dev, "%s(): writing %u to volume\n",
-			__func__, priv->saved_volume);
+	if (doit && !mute)
 		ret = regmap_write(priv->regmap, IVM6303_VOLUME,
 				   priv->saved_volume);
-	}
 err:
 	if (ret >= 0 && doit)
 		priv->muted = mute;
@@ -1355,7 +1306,6 @@ err:
 
 static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 {
-	struct device *dev = &priv->i2c_client->dev;
 	static const u8 force_intfb_vals[] = { 0x70, 0x60, 0x01, };
 	static const u8 leave_intfb_vals[] = { 0x00, 0x00, };
 	unsigned int v;
@@ -1412,7 +1362,6 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 	if (stat < 0)
 		pr_err("Error leaving internal feedback\n");
 	if (en) {
-		dev_dbg(dev, "resync mute status (%d)", priv->muted);
 		_do_mute(priv, priv->muted);
 		set_bit(SPEAKER_ENABLED, &priv->flags);
 	} else
@@ -1453,7 +1402,6 @@ static void _pll_locked_handler(struct ivm6303_priv *priv)
 				      WAITING_FOR_CLKMON_OK);
 		switch(olds) {
 		case WAITING_FOR_PLL_LOCK:
-			dev_dbg(dev, "start waiting for clkmon ok");
 			priv->clkmon_ok_attempts = 0;
 			break;
 		case WAITING_FOR_CLKMON_OK:
@@ -1475,9 +1423,7 @@ static void _pll_locked_handler(struct ivm6303_priv *priv)
 	}
 	/* PLL locked and clkmon OK, clock is running (BCLK + FSYN) */
 	atomic_set(&priv->clk_status, RUNNING);
-	dev_dbg(dev, "%s: PLL LOCKED AND CLK_MON OK\n", __func__);
 	if (priv->tdm_apply_needed) {
-		dev_dbg(dev, "%s: doing tdm apply\n", __func__);
 		_do_tdm_apply(priv);
 		priv->tdm_apply_needed = 0;
 	}
@@ -1493,7 +1439,6 @@ static void pll_locked_handler(struct work_struct * work)
 						 pll_locked_work.work);
 	struct device *dev = &priv->i2c_client->dev;
 
-	pr_debug("%s called\n", __func__);
 	mutex_lock(&priv->regmap_mutex);
 	if (_poll_pll_locked(priv) < 0) {
 		mutex_unlock(&priv->regmap_mutex);
@@ -1541,25 +1486,20 @@ static int _tdm_enabled(struct ivm6303_priv *priv)
 		return 1;
 	}
 	ret = v & TDM_EN;
-	dev_dbg(dev, "%s returns %d\n", __func__, ret);
 	return ret;
 }
 
 /* Assumes regmap mutex taken */
 static void _try_tdm_apply(struct ivm6303_priv *priv)
 {
-	struct device *dev = &priv->i2c_client->dev;
 	unsigned int clk_status;
 
 	clk_status = atomic_read(&priv->clk_status);
 	priv->tdm_apply_needed = (clk_status != RUNNING) || !_tdm_enabled(priv);
 
-	if (priv->tdm_apply_needed) {
-		dev_dbg(dev, "%s: CLK_MON not OK or TDM not enabled\n",
-			__func__);
+	if (priv->tdm_apply_needed)
+		/* CLK_MON not ok or TDM not enabled */
 		return;
-	}
-	dev_dbg(dev, "CLK_MON OK and TDM enabled, applying TDM conf\n");
 	_do_tdm_apply(priv);
 }
 
@@ -1582,7 +1522,6 @@ static unsigned int ivm6303_component_read(struct snd_soc_component *component,
 	int stat;
 	unsigned int v = 0;
 
-	dev_dbg(component->dev, "%s, reading %u", __func__, reg);
 	mutex_lock(&priv->regmap_mutex);
 	stat = regmap_read(priv->regmap, reg, &v);
 	mutex_unlock(&priv->regmap_mutex);
@@ -1598,7 +1537,6 @@ static int ivm6303_component_write(struct snd_soc_component *component,
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 	int ret;
 
-	dev_dbg(component->dev, "%s, writing to reg %u", __func__, reg);
 	mutex_lock(&priv->regmap_mutex);
 	ret = regmap_write(priv->regmap, reg, val);
 	mutex_unlock(&priv->regmap_mutex);
@@ -1638,8 +1576,6 @@ static int ivm6303_set_bias_level(struct snd_soc_component *component,
 		snd_soc_component_get_bias_level(component);
 	int ret = 0;
 
-	dev_dbg(dev, "%s: level = %d, prev_level = %d\n", __func__, level,
-		prev_level);
 	switch(level) {
 	case SND_SOC_BIAS_ON:
 	case SND_SOC_BIAS_PREPARE:
@@ -1971,10 +1907,6 @@ static int _set_sam_size(struct snd_soc_component *component,
 	case SNDRV_PCM_STREAM_CAPTURE:
 		/* TDM_CHxO_DL */
 		for (i = 0; i < 4; i++, need_tdm_apply++) {
-			dev_dbg(component->dev,
-				"%s: writing reg %2x, mask = %2x, val = %2x",
-				__func__, IVM6303_TDM_SETTINGS(11 + 2*i),
-				O_DL_MASK, samsize << O_DL_SHIFT);
 			ret = regmap_update_bits(priv->regmap,
 						 IVM6303_TDM_SETTINGS(11 + 2*i),
 						 O_DL_MASK,
@@ -1986,10 +1918,6 @@ static int _set_sam_size(struct snd_soc_component *component,
 	case SNDRV_PCM_STREAM_PLAYBACK:
 		for (i = 0; i < 5; i++, need_tdm_apply++) {
 			/* TDM_CHxI_DL */
-			dev_dbg(component->dev,
-				"%s: writing reg %2x, mask = %2x, val = %2x",
-				__func__, IVM6303_TDM_SETTINGS(5 + i),
-				I_DL_MASK, samsize << I_DL_SHIFT);
 			ret = regmap_update_bits(priv->regmap,
 						 IVM6303_TDM_SETTINGS(5 + i),
 						 I_DL_MASK,
@@ -2141,10 +2069,8 @@ static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 	dev_dbg(component->dev, "feedback divider = %lu", pll_feedback_divider);
 
 	if ((pll_feedback_divider == priv->pll_feedback_divider) &&
-	    (pll_input_divider == priv->pll_input_divider)) {
-		dev_dbg(component->dev, "not updating pll settings\n");
+	    (pll_input_divider == priv->pll_input_divider))
 		goto pll_done;
-	}
 	/* Start updating PLL settings by disabling PLL */
 	ret = _set_pll_enable(priv, 0);
 	if (ret < 0) {
@@ -2238,10 +2164,6 @@ static int ivm6303_hw_params(struct snd_pcm_substream *substream,
 	unsigned int channels = params_channels(params), minch, maxch;
 	unsigned int samsize, bclk;
 	int ret;
-
-	dev_dbg(component->dev,
-		"%s(): entry , bps : %u , rate : %u, channels : %u\n",
-		__func__, bps, rate, channels);
 
 	if (bps != 16 && bps != 24 && bps != 32) {
 		dev_err(component->dev, "invalid bits per sample %u\n", bps);
@@ -2369,10 +2291,8 @@ static int _set_protocol(struct snd_soc_dai *dai, unsigned int fmt)
 	if (inverted_bclk)
 		v |= TDM_BCLK_POLARITY;
 
-	if (v == priv->tdm_settings_1) {
-		dev_dbg(component->dev, "tdm settings 1 already setup\n");
+	if (v == priv->tdm_settings_1)
 		return 0;
-	}
 
 	ret = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(1),
 				 TDM_SETTINGS_MASK, v);
@@ -2391,8 +2311,6 @@ static int ivm6303_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	struct snd_soc_component *component = dai->component;
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 
-	dev_dbg(component->dev, "%s(): fmt = 0x%08x\n", __func__, fmt);
-
 	/* Master/slave configuration */
 	if ((fmt & SND_SOC_DAIFMT_MASTER_MASK) != SND_SOC_DAIFMT_CBS_CFS) {
 		dev_err(component->dev,
@@ -2402,12 +2320,8 @@ static int ivm6303_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	/* Clock gating */
 	switch (fmt & SND_SOC_DAIFMT_CLOCK_MASK) {
 	case SND_SOC_DAIFMT_CONT: /* continuous clock */
-		dev_dbg(component->dev, "%s: IF0 Clock is continuous.\n",
-			__func__);
 		break;
 	case SND_SOC_DAIFMT_GATED: /* clock is gated */
-		dev_dbg(component->dev, "%s: IF0 Clock is gated.\n",
-			__func__);
 		break;
 	default:
 		dev_err(component->dev,
@@ -2426,16 +2340,12 @@ static int ivm6303_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 static int _assign_slot(struct ivm6303_priv *priv, bool tx, unsigned int ch,
 			unsigned int slot)
 {
-	struct device *dev = &priv->i2c_client->dev;
 	unsigned int base_en = tx ? IVM6303_TDM_SETTINGS(0xb) :
 		IVM6303_TDM_SETTINGS(0x5);
 	unsigned int ch_shift = tx ? 1 : 0;
 	unsigned int r = base_en + (ch << ch_shift);
 	unsigned int slots_mask = tx ? O_SLOT_CHAN_MASK : I_SLOT_CHAN_MASK;
-	const char *what = tx ? "tx" : "rx";
 
-	dev_dbg(dev, "%s: updating reg %2x, msk %2x, val %2x",
-		what, r, slots_mask, slot);
 	return regmap_update_bits(priv->regmap, r, slots_mask, slot);
 }
 
@@ -2544,16 +2454,12 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 	priv->slot_width = slot_width;
 
 	mutex_lock(&priv->regmap_mutex);
-	dev_dbg(component->dev, "%s: writing reg %2x, mask %2x, val %2x",
-		__func__, IVM6303_TDM_SETTINGS(3), I_SLOT_SIZE_MASK, w);
 	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(3),
 				  I_SLOT_SIZE_MASK, w);
 	if (stat < 0) {
 		dev_err(component->dev, "error writing input slot size\n");
 		goto err;
 	}
-	dev_dbg(component->dev, "%s: writing reg %2x, mask %2x, val %2x",
-		__func__, IVM6303_TDM_SETTINGS(4), O_SLOT_SIZE_MASK, w);
 	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(4),
 				  O_SLOT_SIZE_MASK, w);
 	if (stat < 0) {
@@ -2689,7 +2595,6 @@ static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 
 	switch(cmd) {
 	case SNDRV_PCM_TRIGGER_START:
-		dev_dbg(component->dev, "%s, start trigger cmd\n", __func__);
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK &&
 		    !priv->capture_only) {
 			clear_bit(WAITING_FOR_SPEAKER_OFF, &priv->flags);
@@ -2704,7 +2609,6 @@ static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 		 * We are in atomic context, can't use regmap here
 		 * Just queue for later execution
 		 */
-		dev_dbg(component->dev, "%s, stop trigger cmd\n", __func__);
 		if  ((substream->stream == SNDRV_PCM_STREAM_PLAYBACK) &&
 		     !priv->capture_only && \
 		     !test_and_set_bit(WAITING_FOR_SPEAKER_OFF,
@@ -2729,7 +2633,6 @@ static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 		/* Ignore mute on capture */
 		return 0;
 
-	dev_dbg(component->dev, "%s(): mute = %d\n", __func__, mute);
 	mutex_lock(&priv->regmap_mutex);
 	if (!test_bit(SPEAKER_ENABLED, &priv->flags)) {
 		/*
@@ -2750,7 +2653,6 @@ static int ivm6303_i2s_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	int ret;
 
 	/* Setup for mono playback and stereo capture (Vs/Is) */
-	dev_dbg(component->dev, "%s invoked\n", __func__);
 	ret = ivm6303_set_tdm_slot(dai, 0x3, 0x1, 2, 32);
 	if (ret < 0) {
 		dev_err(component->dev,
