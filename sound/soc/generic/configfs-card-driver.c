@@ -144,7 +144,7 @@ static int configfs_sc_probe(struct platform_device *pdev)
 	card = devm_kzalloc(&pdev->dev, sizeof(*card), GFP_KERNEL);
 	if (!card)
 		return -ENOMEM;
-	card->name = "CONFIGFS-SC";
+	card->name = configfs_data->name;
 	card->owner = THIS_MODULE;
 	card->late_probe = configfs_sc_late_probe;
 
@@ -277,7 +277,7 @@ static int configfs_sc_remove(struct platform_device *pdev)
 }
 
 static const struct platform_device_id configfs_sc_driver_ids[] = {
-	{ .name = "soundcard", },
+	{ .name = "configfssc", },
 	{},
 };
 MODULE_DEVICE_TABLE(platform, configfs_sc_driver_ids);

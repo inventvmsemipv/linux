@@ -340,7 +340,7 @@ static ssize_t asoc_card_command_store(struct config_item *item,
 		return -EINVAL;
 	}
 	fixup_total_slots(sc);
-	pdev = platform_device_register_resndata(NULL, sc->name,
+	pdev = platform_device_register_resndata(NULL, "configfssc",
 						 atomic_inc_return(&asoc_sc_instance),
 						 NULL, 0,
 						 sc, sizeof(*sc));
@@ -391,6 +391,7 @@ static void single_soundcard_type_item_release(struct config_item *item)
 	pr_err("%s invoked, item = %p, group = %p, sc = %p\n", __func__, item,
 	       gr, sc);
 	platform_device_unregister(sc->pdev);
+	kfree(sc->name);
 	kfree(sc);
 }
 
@@ -414,10 +415,10 @@ asoc_soundcard_make_group(struct config_group *group, const char *name)
 {
 	struct asoc_configfs_soundcard *out = kzalloc(sizeof(*out), GFP_KERNEL);
 
-	pr_err("%s: allocated soundcard %p\n", __func__, out);
+	pr_err("%s: allocated soundcard %p (%s)\n", __func__, out, name);
 	if (!out)
 		return ERR_PTR(-ENOMEM);
-	out->name = group->cg_item.ci_namebuf;
+	out->name = kstrndup(name, 32, GFP_KERNEL);
 	config_group_init_type_name(&out->group, name, &single_soundcard_type);
 	return &out->group;
 }
