@@ -2179,7 +2179,7 @@ static int ivm6303_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	if (rate < 16000 && rate > 96000) {
+	if (rate < 16000 || rate > 96000) {
 		dev_err(component->dev, "invalid rate %u\n", rate);
 		return -EINVAL;
 	}
