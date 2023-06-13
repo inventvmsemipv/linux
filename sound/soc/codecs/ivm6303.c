@@ -594,6 +594,19 @@ static const struct snd_kcontrol_new playback_mode_control[] = {
 		       playback_mode_control_put),
 };
 
+static int start_pll_polling(struct ivm6303_priv *priv)
+{
+	int olds;
+
+	olds = atomic_cmpxchg(&priv->clk_status, STOPPED, WAITING_FOR_PLL_LOCK);
+	if (olds == WAITING_FOR_PLL_LOCK)
+		/* Already waiting, do nothing */
+		return 0;
+	priv->pll_locked_poll_attempts = 0;
+	return queue_delayed_work(priv->wq, &priv->pll_locked_work,
+				  PLL_LOCKED_POLL_PERIOD);
+}
+
 int playback_mode_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
 			int e)
 {
@@ -611,6 +624,21 @@ int playback_mode_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
 			break;
 		/* And finally the PRE_PMU section */
 		ret = run_fw_section(component, IVM6303_PRE_PMU_WRITES);
+		break;
+	case SND_SOC_DAPM_POST_PMU:
+		if (!priv->capture_only) {
+			clear_bit(WAITING_FOR_SPEAKER_OFF, &priv->flags);
+			set_bit(WAITING_FOR_SPEAKER_ON, &priv->flags);
+		}
+		if (priv->i2c_client->irq <= 0)
+			ret = start_pll_polling(priv);
+		break;
+	case SND_SOC_DAPM_PRE_PMD:
+		if (!priv->capture_only &&
+		    !test_and_set_bit(WAITING_FOR_SPEAKER_OFF, &priv->flags))
+			ret = queue_work(priv->wq,
+					 &priv->speaker_deferred_work);
+		atomic_set(&priv->clk_status, STOPPED);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		break;
@@ -664,6 +692,13 @@ int adc_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
 		/* Enable Vs/Is */
 		on = 1;
 		break;
+	case SND_SOC_DAPM_POST_PMU:
+		if (priv->i2c_client->irq <= 0)
+			ret = start_pll_polling(priv);
+		break;
+	case SND_SOC_DAPM_PRE_PMD:
+		atomic_set(&priv->clk_status, STOPPED);
+		break;
 	case SND_SOC_DAPM_POST_PMD:
 		/* Disable Vs/Is */
 		on = 0;
@@ -673,7 +708,7 @@ int adc_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
 			__func__, e);
 		ret = -EINVAL;
 	}
-	if (ret)
+	if (ret || (e == SND_SOC_DAPM_POST_PMU) || (e == SND_SOC_DAPM_PRE_PMD))
 		return ret;
 	/*
 	 * If we're capture only, then we can avoid deferring Vs/Is enable
@@ -766,12 +801,14 @@ static const struct snd_soc_dapm_widget ivm6303_dapm_widgets[] = {
 	SND_SOC_DAPM_PGA_E("CLASS-D", SND_SOC_NOPM, 0, 0,
 			   playback_mode_control, 1,
 			   playback_mode_event,
-			   SND_SOC_DAPM_PRE_PMU|SND_SOC_DAPM_POST_PMD),
+			   SND_SOC_DAPM_PRE_PMU|SND_SOC_DAPM_POST_PMU|
+			   SND_SOC_DAPM_PRE_PMD|SND_SOC_DAPM_POST_PMD),
 	/* Analog input */
 	SND_SOC_DAPM_INPUT("VSIS-IN"),
 	SND_SOC_DAPM_ADC_E("VSIS-ADC", NULL, SND_SOC_NOPM, 0, 0,
 			   adc_event,
-			   SND_SOC_DAPM_PRE_PMU|SND_SOC_DAPM_POST_PMD),
+			   SND_SOC_DAPM_PRE_PMU|SND_SOC_DAPM_POST_PMU|
+			   SND_SOC_DAPM_PRE_PMD|SND_SOC_DAPM_POST_PMD),
 	SND_SOC_DAPM_AIF_OUT("AIF CH1-2 I2S OUT", "I2S Capture", 0,
 			     SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("AIF CH1-2 TDM OUT", "TDM Capture", 0,
@@ -2572,56 +2609,6 @@ err:
 	return stat;
 }
 
-static int start_pll_polling(struct ivm6303_priv *priv)
-{
-	int olds;
-
-	olds = atomic_cmpxchg(&priv->clk_status, STOPPED, WAITING_FOR_PLL_LOCK);
-	if (olds == WAITING_FOR_PLL_LOCK)
-		/* Already waiting, do nothing */
-		return 0;
-	priv->pll_locked_poll_attempts = 0;
-	return queue_delayed_work(priv->wq, &priv->pll_locked_work,
-				  PLL_LOCKED_POLL_PERIOD);
-}
-
-static int ivm6303_dai_trigger(struct snd_pcm_substream *substream, int cmd,
-			       struct snd_soc_dai *dai)
-{
-	struct snd_soc_component *component = dai->component;
-	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
-	int ret = 0;
-
-	switch(cmd) {
-	case SNDRV_PCM_TRIGGER_START:
-		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK &&
-		    !priv->capture_only) {
-			clear_bit(WAITING_FOR_SPEAKER_OFF, &priv->flags);
-			set_bit(WAITING_FOR_SPEAKER_ON, &priv->flags);
-		}
-		if (priv->i2c_client->irq <= 0)
-			ret = start_pll_polling(priv);
-		break;
-	case SNDRV_PCM_TRIGGER_STOP:
-		/*
-		 * Turn speaker off, if playback finished
-		 * We are in atomic context, can't use regmap here
-		 * Just queue for later execution
-		 */
-		if  ((substream->stream == SNDRV_PCM_STREAM_PLAYBACK) &&
-		     !priv->capture_only && \
-		     !test_and_set_bit(WAITING_FOR_SPEAKER_OFF,
-				       &priv->flags))
-			ret = queue_work(priv->wq,
-					 &priv->speaker_deferred_work);
-		atomic_set(&priv->clk_status, STOPPED);
-		break;
-	default:
-		break;
-	}
-	return ret;
-}
-
 static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 {
 	struct snd_soc_component *component = dai->component;
@@ -2668,7 +2655,6 @@ static int ivm6303_i2s_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 const struct snd_soc_dai_ops ivm6303_i2s_dai_ops = {
 	.hw_params	= ivm6303_hw_params,
 	.set_fmt	= ivm6303_i2s_set_fmt,
-	.trigger	= ivm6303_dai_trigger,
 	.mute_stream	= ivm6303_dai_mute,
 };
 
@@ -2678,7 +2664,6 @@ const struct snd_soc_dai_ops ivm6303_tdm_dai_ops = {
 	.set_tdm_slot   = ivm6303_set_tdm_slot,
 	.set_channel_map = ivm6303_set_channel_map,
 	.get_channel_map = ivm6303_get_channel_map,
-	.trigger	= ivm6303_dai_trigger,
 	.mute_stream	= ivm6303_dai_mute,
 };
 
