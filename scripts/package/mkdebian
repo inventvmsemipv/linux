@@ -60,6 +60,7 @@ set_debarch() {
 		else
 			debarch=arm
 		fi
+		debarch=armhf
 		;;
 	openrisc)
 		debarch=or1k ;;
