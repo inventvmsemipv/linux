@@ -216,6 +216,8 @@ struct sun4i_i2s {
 	unsigned int	mclk_freq;
 	unsigned int	slots;
 	unsigned int	slot_width;
+	unsigned int	rx_mask;
+	unsigned int	tx_mask;
 
 	struct snd_dmaengine_dai_dma_data	capture_dma_data;
 	struct snd_dmaengine_dai_dma_data	playback_dma_data;
@@ -476,6 +478,33 @@ static int sun4i_i2s_set_chan_cfg(const struct sun4i_i2s *i2s,
 	return 0;
 }
 
+static int map_channels(const struct sun4i_i2s *i2s)
+{
+	unsigned int i, mask, rx_chan_index, tx_chan_index,
+		rx_mask = i2s->rx_mask, tx_mask = i2s->tx_mask;
+
+	for (rx_chan_index = tx_chan_index = i = 0;
+	     i < 8 && (rx_mask || tx_mask); i++) {
+		mask = (1 << i);
+
+		if (mask && rx_mask) {
+			/* Slot i -> rx chan chan_index */
+			regmap_update_bits(i2s->regmap,
+					  SUN8I_I2S_RX_CHAN_MAP_REG,
+					  7 << (rx_chan_index++ * 4), i);
+			rx_mask &= ~mask;
+		}
+		if (mask && tx_mask) {
+			/* Slot i -> rx chan chan_index */
+			regmap_update_bits(i2s->regmap,
+					  SUN8I_I2S_TX_CHAN_MAP_REG,
+					  7 << (tx_chan_index++ * 4), i);
+			tx_mask &= ~mask;
+		}
+	}
+	return 0;
+}
+
 static int sun8i_i2s_set_chan_cfg(const struct sun4i_i2s *i2s,
 				  unsigned int channels, unsigned int slots,
 				  unsigned int slot_width)
@@ -483,8 +512,7 @@ static int sun8i_i2s_set_chan_cfg(const struct sun4i_i2s *i2s,
 	unsigned int lrck_period;
 
 	/* Map the channels for playback and capture */
-	regmap_write(i2s->regmap, SUN8I_I2S_TX_CHAN_MAP_REG, 0x76543210);
-	regmap_write(i2s->regmap, SUN8I_I2S_RX_CHAN_MAP_REG, 0x76543210);
+	map_channels(i2s);
 
 	/* Configure the channels */
 	regmap_update_bits(i2s->regmap, SUN8I_I2S_TX_CHAN_SEL_REG,
@@ -1078,6 +1106,8 @@ static int sun4i_i2s_set_tdm_slot(struct snd_soc_dai *dai,
 
 	i2s->slots = slots;
 	i2s->slot_width = slot_width;
+	i2s->rx_mask = rx_mask;
+	i2s->tx_mask = tx_mask;
 
 	return 0;
 }
