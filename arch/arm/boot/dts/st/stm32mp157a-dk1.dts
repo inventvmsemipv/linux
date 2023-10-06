@@ -22,4 +22,20 @@
 	chosen {
 		stdout-path = "serial0:115200n8";
 	};
+
+	sound {
+		status = "disabled";
+	};
+};
+
+&i2c1 {
+	ivm6303-amp@6c {
+		compatible = "inventvm,ivm6303-amp";
+		reg = <0x6c>;
+	};
+
+	ivm6303-amp@6e {
+		compatible = "inventvm,ivm6303-amp";
+		reg = <0x6e>;
+	};
 };
