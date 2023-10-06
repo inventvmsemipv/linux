@@ -201,6 +201,7 @@ struct sun4i_i2s_quirks {
 	 * @slot_width: bits per sample + padding bits, regardless of format
 	 */
 	int	(*set_chan_cfg)(const struct sun4i_i2s *i2s,
+				int stream,
 				unsigned int channels,	unsigned int slots,
 				unsigned int slot_width);
 	int	(*set_fmt)(const struct sun4i_i2s *i2s, unsigned int fmt);
@@ -459,45 +460,56 @@ static int sun8i_i2s_get_sr_wss(unsigned int width)
 }
 
 static int sun4i_i2s_set_chan_cfg(const struct sun4i_i2s *i2s,
+				  int stream,
 				  unsigned int channels, unsigned int slots,
 				  unsigned int slot_width)
 {
 	/* Map the channels for playback and capture */
-	regmap_write(i2s->regmap, SUN4I_I2S_TX_CHAN_MAP_REG, 0x76543210);
-	regmap_write(i2s->regmap, SUN4I_I2S_RX_CHAN_MAP_REG, 0x00003210);
-
-	/* Configure the channels */
-	regmap_update_bits(i2s->regmap, SUN4I_I2S_TX_CHAN_SEL_REG,
-			   SUN4I_I2S_CHAN_SEL_MASK,
-			   SUN4I_I2S_CHAN_SEL(channels));
-	regmap_update_bits(i2s->regmap, SUN4I_I2S_RX_CHAN_SEL_REG,
-			   SUN4I_I2S_CHAN_SEL_MASK,
-			   SUN4I_I2S_CHAN_SEL(channels));
-
+	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
+		regmap_write(i2s->regmap, SUN4I_I2S_TX_CHAN_MAP_REG,
+			     0x76543210);
+		regmap_update_bits(i2s->regmap, SUN4I_I2S_TX_CHAN_SEL_REG,
+				   SUN4I_I2S_CHAN_SEL_MASK,
+				   SUN4I_I2S_CHAN_SEL(channels));
+	} else {
+		regmap_write(i2s->regmap, SUN4I_I2S_RX_CHAN_MAP_REG,
+			     0x00003210);
+		regmap_update_bits(i2s->regmap, SUN4I_I2S_RX_CHAN_SEL_REG,
+				   SUN4I_I2S_CHAN_SEL_MASK,
+				   SUN4I_I2S_CHAN_SEL(channels));
+	}
 	return 0;
 }
 
-static int map_channels(const struct sun4i_i2s *i2s)
+static int map_channels(const struct sun4i_i2s *i2s, int stream)
 {
 	unsigned int i, mask, rx_chan_index, tx_chan_index,
-		rx_mask = i2s->rx_mask, tx_mask = i2s->tx_mask;
+		rx_mask = i2s->rx_mask, tx_mask = i2s->tx_mask,
+		ch_map_mask, ch_map_shift;
+	int map_tx = stream == SNDRV_PCM_STREAM_PLAYBACK;
 
 	for (rx_chan_index = tx_chan_index = i = 0;
 	     i < 8 && (rx_mask || tx_mask); i++) {
 		mask = (1 << i);
 
-		if (mask && rx_mask) {
+		if (!map_tx && (mask && rx_mask)) {
 			/* Slot i -> rx chan chan_index */
+			ch_map_shift = (rx_chan_index++ * 4);
+			ch_map_mask = 7 << ch_map_shift;
+
 			regmap_update_bits(i2s->regmap,
 					  SUN8I_I2S_RX_CHAN_MAP_REG,
-					  7 << (rx_chan_index++ * 4), i);
+					  ch_map_mask, i << ch_map_shift);
 			rx_mask &= ~mask;
 		}
-		if (mask && tx_mask) {
-			/* Slot i -> rx chan chan_index */
+		if (map_tx && (mask && tx_mask)) {
+			/* Slot i -> tx chan chan_index */
+			ch_map_shift = (rx_chan_index++ * 4);
+			ch_map_mask = 7 << ch_map_shift;
+
 			regmap_update_bits(i2s->regmap,
 					  SUN8I_I2S_TX_CHAN_MAP_REG,
-					  7 << (tx_chan_index++ * 4), i);
+					   ch_map_mask, i << ch_map_shift);
 			tx_mask &= ~mask;
 		}
 	}
@@ -505,28 +517,31 @@ static int map_channels(const struct sun4i_i2s *i2s)
 }
 
 static int sun8i_i2s_set_chan_cfg(const struct sun4i_i2s *i2s,
+				  int stream,
 				  unsigned int channels, unsigned int slots,
 				  unsigned int slot_width)
 {
 	unsigned int lrck_period;
 
 	/* Map the channels for playback and capture */
-	map_channels(i2s);
+	map_channels(i2s, stream);
 
 	/* Configure the channels */
-	regmap_update_bits(i2s->regmap, SUN8I_I2S_TX_CHAN_SEL_REG,
-			   SUN4I_I2S_CHAN_SEL_MASK,
-			   SUN4I_I2S_CHAN_SEL(channels));
-	regmap_update_bits(i2s->regmap, SUN8I_I2S_RX_CHAN_SEL_REG,
-			   SUN4I_I2S_CHAN_SEL_MASK,
-			   SUN4I_I2S_CHAN_SEL(channels));
-
-	regmap_update_bits(i2s->regmap, SUN8I_I2S_CHAN_CFG_REG,
-			   SUN8I_I2S_CHAN_CFG_TX_SLOT_NUM_MASK,
-			   SUN8I_I2S_CHAN_CFG_TX_SLOT_NUM(channels));
-	regmap_update_bits(i2s->regmap, SUN8I_I2S_CHAN_CFG_REG,
-			   SUN8I_I2S_CHAN_CFG_RX_SLOT_NUM_MASK,
-			   SUN8I_I2S_CHAN_CFG_RX_SLOT_NUM(channels));
+	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
+		regmap_update_bits(i2s->regmap, SUN8I_I2S_TX_CHAN_SEL_REG,
+				   SUN4I_I2S_CHAN_SEL_MASK,
+				   SUN4I_I2S_CHAN_SEL(channels));
+		regmap_update_bits(i2s->regmap, SUN8I_I2S_CHAN_CFG_REG,
+				   SUN8I_I2S_CHAN_CFG_TX_SLOT_NUM_MASK,
+				   SUN8I_I2S_CHAN_CFG_TX_SLOT_NUM(channels));
+	} else {
+		regmap_update_bits(i2s->regmap, SUN8I_I2S_RX_CHAN_SEL_REG,
+				   SUN4I_I2S_CHAN_SEL_MASK,
+				   SUN4I_I2S_CHAN_SEL(channels));
+		regmap_update_bits(i2s->regmap, SUN8I_I2S_CHAN_CFG_REG,
+				   SUN8I_I2S_CHAN_CFG_RX_SLOT_NUM_MASK,
+				   SUN8I_I2S_CHAN_CFG_RX_SLOT_NUM(channels));
+	}
 
 	switch (i2s->format & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_DSP_A:
@@ -548,14 +563,15 @@ static int sun8i_i2s_set_chan_cfg(const struct sun4i_i2s *i2s,
 			   SUN8I_I2S_FMT0_LRCK_PERIOD_MASK,
 			   SUN8I_I2S_FMT0_LRCK_PERIOD(lrck_period));
 
-	regmap_update_bits(i2s->regmap, SUN8I_I2S_TX_CHAN_SEL_REG,
-			   SUN8I_I2S_TX_CHAN_EN_MASK,
-			   SUN8I_I2S_TX_CHAN_EN(channels));
-
+	if (stream == SNDRV_PCM_STREAM_PLAYBACK)
+		regmap_update_bits(i2s->regmap, SUN8I_I2S_TX_CHAN_SEL_REG,
+				   SUN8I_I2S_TX_CHAN_EN_MASK,
+				   SUN8I_I2S_TX_CHAN_EN(channels));
 	return 0;
 }
 
 static int sun50i_h6_i2s_set_chan_cfg(const struct sun4i_i2s *i2s,
+				      int stream,
 				      unsigned int channels, unsigned int slots,
 				      unsigned int slot_width)
 {
@@ -636,7 +652,8 @@ static int sun4i_i2s_hw_params(struct snd_pcm_substream *substream,
 	if (i2s->slot_width)
 		slot_width = i2s->slot_width;
 
-	ret = i2s->variant->set_chan_cfg(i2s, channels, slots, slot_width);
+	ret = i2s->variant->set_chan_cfg(i2s, substream->stream,
+					 channels, slots, slot_width);
 	if (ret < 0) {
 		dev_err(dai->dev, "Invalid channel configuration\n");
 		return ret;
