@@ -2,10 +2,15 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/configfs.h>
+#include <sound/soc.h>
+#include <sound/soc-dai.h>
 
 struct asoc_configfs_soundcard {
 	const char *name;
 	struct config_group group;
+	int format;
+	int cpu_bitclock_master;
+	int cpu_frameclock_master;
 };
 
 static inline struct asoc_configfs_soundcard *
@@ -13,6 +18,74 @@ to_asoc_configfs_soundcard(struct config_group *g)
 {
 	return container_of(g, struct asoc_configfs_soundcard, group);
 }
+
+static const char *dai_formats[] = {
+	[SND_SOC_DAIFMT_I2S] = "i2s",
+	[SND_SOC_DAIFMT_RIGHT_J] = "right_j",
+	[SND_SOC_DAIFMT_LEFT_J] = "left_j",
+	[SND_SOC_DAIFMT_DSP_A] = "dsp_a",
+	[SND_SOC_DAIFMT_DSP_B] = "dsp_b",
+	[SND_SOC_DAIFMT_AC97] = "ac97",
+	[SND_SOC_DAIFMT_PDM] = "pdm",
+};
+
+static ssize_t asoc_card_format_store(struct config_item *item,
+				      const char *page, size_t len)
+{
+	int i;
+	struct asoc_configfs_soundcard *sc =
+		to_asoc_configfs_soundcard(to_config_group(item));
+
+	pr_debug("%s: written %s\n", __func__, page);
+	for (i = SND_SOC_DAIFMT_I2S; i <= SND_SOC_DAIFMT_PDM; i++)
+		if (!strncmp(page, dai_formats[i], strlen(dai_formats[i]))) {
+			sc->format = i;
+			return len;
+		}
+	return -EINVAL;
+}
+
+static ssize_t _set_bitclock_master(const char *page, size_t len,
+				    int *what)
+{
+	*what = !strncmp(page, "cpu", 3) ? 1 : 0;
+	if (*what)
+		return len;
+	if (strncmp(page, "codec", 5))
+		return -EINVAL;
+	return len;
+}
+
+static ssize_t asoc_card_bitclock_master_store(struct config_item *item,
+					       const char *page, size_t len)
+{
+	struct asoc_configfs_soundcard *sc =
+		to_asoc_configfs_soundcard(to_config_group(item));
+
+	pr_debug("%s: written %s\n", __func__, page);
+	return _set_bitclock_master(page, len, &sc->cpu_bitclock_master);
+}
+
+static ssize_t asoc_card_frameclock_master_store(struct config_item *item,
+						 const char *page, size_t len)
+{
+	struct asoc_configfs_soundcard *sc =
+		to_asoc_configfs_soundcard(to_config_group(item));
+
+	pr_debug("%s: written %s\n", __func__, page);
+	return _set_bitclock_master(page, len, &sc->cpu_frameclock_master);
+}
+
+CONFIGFS_ATTR_WO(asoc_card_, format);
+CONFIGFS_ATTR_WO(asoc_card_, bitclock_master);
+CONFIGFS_ATTR_WO(asoc_card_, frameclock_master);
+
+static struct configfs_attribute *soundcard_root_attrs[] = {
+	&asoc_card_attr_format,
+	&asoc_card_attr_bitclock_master,
+	&asoc_card_attr_frameclock_master,
+	NULL,
+};
 
 static void single_soundcard_type_item_release(struct config_item *item)
 {
@@ -30,6 +103,7 @@ static struct configfs_item_operations single_soundcard_type_item_ops = {
 
 static const struct config_item_type single_soundcard_type = {
 	.ct_item_ops = &single_soundcard_type_item_ops,
+	.ct_attrs = soundcard_root_attrs,
 	.ct_owner = THIS_MODULE,
 };
 
