@@ -12,7 +12,7 @@
 #include <linux/configfs.h>
 
 #define MAX_CODECS 4
-#define MAX_CPUS   1
+#define MAX_CPUS   2
 
 struct asoc_configfs_dai_link {
 	char *component_dev_name;

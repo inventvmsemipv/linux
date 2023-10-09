@@ -20,7 +20,8 @@ struct configfs_sc_priv {
 	struct snd_soc_dai_link dai_link;
 	unsigned int mclk_fs;
 	unsigned int fmt;
-	struct configfs_sc_tdm_data *tdm_data;
+	struct configfs_sc_tdm_data *cpus_tdm_data;
+	struct configfs_sc_tdm_data *codecs_tdm_data;
 };
 
 static void setup_name_ofnode(struct snd_soc_dai_link_component *dlc,
@@ -49,8 +50,8 @@ static int configfs_sc_hw_params(struct snd_pcm_substream *substream,
 
 	dev_dbg(rtd->card->dev, "%s entered\n", __func__);
 
-	cpu_dai = asoc_rtd_to_cpu(rtd, 0);
-	snd_soc_dai_set_fmt(cpu_dai, priv->fmt);
+	for_each_rtd_cpu_dais(rtd, i, cpu_dai)
+		snd_soc_dai_set_fmt(cpu_dai, priv->fmt);
 
 	for_each_rtd_codec_dais(rtd, i, codec_dai)
 		snd_soc_dai_set_fmt(codec_dai, priv->fmt);
@@ -84,26 +85,31 @@ static int configfs_sc_late_probe(struct snd_soc_card *card)
 	struct snd_soc_pcm_runtime *rtd;
 	struct configfs_sc_priv *priv;
 	struct configfs_sc_tdm_data *tdata;
+	struct snd_soc_dai *cpu_dai, *codec_dai;
 	int i, ret;
 
 	rtd = snd_soc_get_pcm_runtime(card, card->dai_link);
 	dev_dbg(rtd->card->dev, "%s entered\n", __func__);
 	priv = snd_soc_card_get_drvdata(rtd->card);
 
-	ret = snd_soc_dai_set_sysclk(asoc_rtd_to_cpu(rtd, 0), 0, 24576000/2,
-				     SND_SOC_CLOCK_IN);
-	if (ret < 0)
-		return ret;
+	for_each_rtd_cpu_dais(rtd, i, cpu_dai) {
+		ret = snd_soc_dai_set_sysclk(cpu_dai, 0,
+					     24576000/2,
+					     SND_SOC_CLOCK_IN);
+		if (ret < 0)
+			return ret;
 
-	tdata = &priv->tdm_data[0];
-	ret = snd_soc_dai_set_tdm_slot(asoc_rtd_to_cpu(rtd, 0), tdata->tx_mask,
-				       tdata->rx_mask, tdata->total_slots,
-				       tdata->slot_width);
-	if (ret < 0 && ret != -ENOTSUPP)
-		return ret;
-	for (i = 0; i < rtd->dai_link->num_codecs; i++) {
-		tdata = &priv->tdm_data[i + 1];
-		ret = snd_soc_dai_set_tdm_slot(asoc_rtd_to_codec(rtd, i),
+		tdata = &priv->cpus_tdm_data[i];
+		ret = snd_soc_dai_set_tdm_slot(cpu_dai, tdata->tx_mask,
+					       tdata->rx_mask,
+					       tdata->total_slots,
+					       tdata->slot_width);
+		if (ret < 0 && ret != -ENOTSUPP)
+			return ret;
+	}
+	for_each_rtd_codec_dais(rtd, i, codec_dai) {
+		tdata = &priv->codecs_tdm_data[i];
+		ret = snd_soc_dai_set_tdm_slot(codec_dai,
 					       tdata->tx_mask, tdata->rx_mask,
 					       tdata->total_slots,
 					       tdata->slot_width);
@@ -178,9 +184,13 @@ static int configfs_sc_probe(struct platform_device *pdev)
 				  GFP_KERNEL);
 	if (!link->cpus)
 		return -ENOMEM;
-	setup_name_ofnode(&link->cpus[0], &configfs_data->cpus[0]);
-	link->cpus[0].dai_name = configfs_data->cpus[0].component_dai_name;
-	dev_dbg(&pdev->dev, "link->cpus[0].name = %s\n", link->cpus[0].name);
+	for (i = 0; i < link->num_cpus; i++) {
+		setup_name_ofnode(&link->cpus[i], &configfs_data->cpus[i]);
+		link->cpus[i].dai_name =
+			configfs_data->cpus[i].component_dai_name;
+		dev_dbg(&pdev->dev, "link->cpus[%d].name = %s\n", i,
+			link->cpus[i].name);
+	}
 
 	link->num_codecs = configfs_data->ncodecs;
 	link->codecs = devm_kzalloc(&pdev->dev,
@@ -235,22 +245,24 @@ static int configfs_sc_probe(struct platform_device *pdev)
 
 	link->ops = &configfs_sc_card_ops;
 
-	priv->tdm_data = devm_kzalloc(&pdev->dev,
-				      sizeof(priv->tdm_data[0]) *
-				      link->num_codecs + link->num_cpus,
-				      GFP_KERNEL);
-	if (!priv->tdm_data)
+	priv->cpus_tdm_data = devm_kzalloc(&pdev->dev,
+					   sizeof(priv->cpus_tdm_data[0]) *
+					   link->num_codecs + link->num_cpus,
+					   GFP_KERNEL);
+	if (!priv->cpus_tdm_data)
 		return -ENOMEM;
+	priv->codecs_tdm_data = &priv->cpus_tdm_data[link->num_cpus];
 	/* Parse cpu tdm slots configuration */
-	tdata = &priv->tdm_data[0];
-	tdata->tx_mask = configfs_data->cpus[0].tx_mask;
-	tdata->rx_mask = configfs_data->cpus[0].rx_mask;
-	tdata->total_slots = configfs_data->total_slots;
-	tdata->slot_width = configfs_data->cpus[0].slot_width;
-
+	for (i = 0; i < configfs_data->ncpus; i++) {
+		tdata = &priv->cpus_tdm_data[i];
+		tdata->tx_mask = configfs_data->cpus[i].tx_mask;
+		tdata->rx_mask = configfs_data->cpus[i].rx_mask;
+		tdata->total_slots = configfs_data->total_slots;
+		tdata->slot_width = configfs_data->cpus[i].slot_width;
+	}
 	/* Parse codecs' tdm slots configurations */
 	for (i = 0; i < configfs_data->ncodecs; i++) {
-		tdata = &priv->tdm_data[i + 1];
+		tdata = &priv->codecs_tdm_data[i];
 		tdata->tx_mask = configfs_data->codecs[i].tx_mask;
 		tdata->rx_mask = configfs_data->codecs[i].rx_mask;
 		tdata->total_slots = configfs_data->total_slots;
