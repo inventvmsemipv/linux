@@ -844,6 +844,7 @@ static int check_hw_rev(struct snd_soc_component *component)
 	switch(rev) {
 	case 0xf9:
 	case 0xfa:
+	case 0xfc:
 		priv->hw_rev = rev;
 		break;
 	default:
