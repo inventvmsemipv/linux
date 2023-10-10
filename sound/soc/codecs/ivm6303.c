@@ -2437,14 +2437,19 @@ static int _program_rx_channels(struct ivm6303_priv *priv, unsigned int msk)
 }
 
 static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
-				unsigned int tx_mask,
-				unsigned int rx_mask,
+				/*
+				 * HACK: tx mask is actually PLAYBACK mask
+				 * tx mask is actually CAPTURE masks
+				 */
+				unsigned int playback_mask,
+				unsigned int capture_mask,
 				int slots, int slot_width)
 {
 	struct snd_soc_component *component = dai->component;
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 	unsigned int w;
 	int stat;
+	unsigned int tx_mask = capture_mask, rx_mask = playback_mask;
 
 	if (!slots) {
 		/* Disable TDM, error for the moment */
