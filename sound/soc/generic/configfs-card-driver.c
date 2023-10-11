@@ -19,7 +19,6 @@ struct configfs_sc_tdm_data {
 struct configfs_sc_priv {
 	struct snd_soc_dai_link dai_link;
 	unsigned int mclk_fs;
-	unsigned int fmt;
 	struct configfs_sc_tdm_data *cpus_tdm_data;
 	struct configfs_sc_tdm_data *codecs_tdm_data;
 };
@@ -44,17 +43,51 @@ static int configfs_sc_hw_params(struct snd_pcm_substream *substream,
 				 struct snd_pcm_hw_params *params)
 {
 	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
-	struct configfs_sc_priv *priv = snd_soc_card_get_drvdata(rtd->card);
 	struct snd_soc_dai *codec_dai, *cpu_dai;
+	unsigned int cpu_fmt, codec_fmt;
 	int i;
 
 	dev_dbg(rtd->card->dev, "%s entered\n", __func__);
 
+	cpu_fmt = codec_fmt = rtd->card->dai_link->dai_fmt &
+		~SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK;
+
+	switch (rtd->card->dai_link->dai_fmt &
+		SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
+	case SND_SOC_DAIFMT_CBM_CFM:
+		/* Codec is bitclock and frameclock master */
+		codec_fmt |= SND_SOC_DAIFMT_BP_FP;
+		/* Cpu is bitclock and frameclock slave */
+		cpu_fmt |= SND_SOC_DAIFMT_BC_FC;
+		break;
+	case SND_SOC_DAIFMT_CBS_CFM:
+		/* Codec is bitclock slave and frameclock master */
+		codec_fmt |= SND_SOC_DAIFMT_BC_FP;
+		/* Cpu is bitclock master and frameclock slave */
+		cpu_fmt |= SND_SOC_DAIFMT_BP_FC;
+		break;
+	case SND_SOC_DAIFMT_CBM_CFS:
+		/* Codec is bitclock master and frameclock slave */
+		codec_fmt |= SND_SOC_DAIFMT_BP_FC;
+		/* Cpu is bitclock slave and frameclock master */
+		cpu_fmt |= SND_SOC_DAIFMT_BC_FP;
+		break;
+	case SND_SOC_DAIFMT_CBS_CFS:
+		/* Codec is bitclock slave and frameclock slave */
+		codec_fmt |= SND_SOC_DAIFMT_BC_FC;
+		/* Cpu is bitclock master and frameclock master */
+		cpu_fmt |= SND_SOC_DAIFMT_BP_FP;
+		break;
+	default:
+		dev_err(rtd->card->dev, "Unsupported frame/bitclock master/slave combination\n");
+		return -EINVAL;
+	}
+
 	for_each_rtd_cpu_dais(rtd, i, cpu_dai)
-		snd_soc_dai_set_fmt(cpu_dai, priv->fmt);
+		snd_soc_dai_set_fmt(cpu_dai, cpu_fmt);
 
 	for_each_rtd_codec_dais(rtd, i, codec_dai)
-		snd_soc_dai_set_fmt(codec_dai, priv->fmt);
+		snd_soc_dai_set_fmt(codec_dai, codec_fmt);
 
 	return 0;
 }
@@ -271,9 +304,6 @@ static int configfs_sc_probe(struct platform_device *pdev)
 
 	link->platforms->name = link->cpus->name;
 	link->platforms->of_node = link->cpus->of_node;
-
-	/* Parse format */
-	priv->fmt = link->dai_fmt;
 
 	snd_soc_card_set_drvdata(card, priv);
 
