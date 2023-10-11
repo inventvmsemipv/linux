@@ -1,4 +1,5 @@
 // configfs based asoc card
+#define DEBUG 1
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/bitops.h>

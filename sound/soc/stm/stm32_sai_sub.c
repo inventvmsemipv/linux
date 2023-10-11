@@ -5,7 +5,7 @@
  * Copyright (C) 2016, STMicroelectronics - All Rights Reserved
  * Author(s): Olivier Moysan <olivier.moysan@st.com> for STMicroelectronics.
  */
-
+#define DEBUG 1
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/kernel.h>
@@ -722,9 +722,11 @@ static int stm32_sai_set_dai_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 		/* codec is master */
 		cr1 |= SAI_XCR1_SLAVE;
 		sai->master = false;
+		dev_dbg(cpu_dai->dev, "CODEC IS MASTER\n");
 		break;
 	case SND_SOC_DAIFMT_BP_FP:
 		sai->master = true;
+		dev_dbg(cpu_dai->dev, "I AM MASTER !!\n");
 		break;
 	default:
 		dev_err(cpu_dai->dev, "Unsupported mode %#x\n",

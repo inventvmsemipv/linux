@@ -8,6 +8,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+#define DEBUG 1
 #include <linux/module.h>
 #include <linux/delay.h>
 #include <linux/of_gpio.h>
@@ -2202,6 +2203,9 @@ static int ivm6303_hw_params(struct snd_pcm_substream *substream,
 	unsigned int samsize, bclk;
 	int ret;
 
+	dev_dbg(component->dev, "%s: bps = %d, slot_width = %d\n",
+		__func__, bps, priv->slot_width);
+
 	if (bps != 16 && bps != 24 && bps != 32) {
 		dev_err(component->dev, "invalid bits per sample %u\n", bps);
 		return -EINVAL;
@@ -2348,6 +2352,8 @@ static int ivm6303_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	struct snd_soc_component *component = dai->component;
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 
+	dev_dbg(component->dev, "%s entered, fmt = 0x%08x\n", __func__, fmt);
+
 	/* Master/slave configuration */
 	if ((fmt & SND_SOC_DAIFMT_MASTER_MASK) != SND_SOC_DAIFMT_CBS_CFS) {
 		dev_err(component->dev,
@@ -2369,6 +2375,7 @@ static int ivm6303_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	mutex_lock(&priv->regmap_mutex);
 	ret = _set_protocol(dai, fmt);
 	mutex_unlock(&priv->regmap_mutex);
+	dev_dbg(component->dev, "%s leaving, ret = %d\n", __func__, ret);
 	if (ret < 0)
 		return ret;
 	return 0;
@@ -2494,6 +2501,9 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 	}
 	priv->slots = slots;
 	priv->slot_width = slot_width;
+
+	dev_dbg(component->dev, "slots number = %d, slot_width = %d\n",
+		slots, slot_width);
 
 	mutex_lock(&priv->regmap_mutex);
 	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(3),

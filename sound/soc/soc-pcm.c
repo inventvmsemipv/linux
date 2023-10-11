@@ -9,7 +9,7 @@
 //
 // Authors: Liam Girdwood <lrg@ti.com>
 //          Mark Brown <broonie@opensource.wolfsonmicro.com>
-
+#define DEBUG 1
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/delay.h>
@@ -657,15 +657,19 @@ static int soc_pcm_components_open(struct snd_pcm_substream *substream)
 	int i, ret = 0;
 
 	for_each_rtd_components(rtd, i, component) {
+		pr_debug("*%s %d, component name = %s\n", __func__, __LINE__,
+			 component->name);
 		ret = snd_soc_component_module_get_when_open(component, substream);
+		pr_debug("*%s %d, ret = %d\n", __func__, __LINE__, ret);
 		if (ret < 0)
 			break;
 
 		ret = snd_soc_component_open(component, substream);
+		pr_debug("*%s %d, ret = %d\n", __func__, __LINE__, ret);
 		if (ret < 0)
 			break;
 	}
-
+	pr_debug("*%s %d, ret = %d\n", __func__, __LINE__, ret);
 	return ret;
 }
 
@@ -926,6 +930,8 @@ static void soc_pcm_codec_params_fixup(struct snd_pcm_hw_params *params,
 	interval = hw_param_interval(params, SNDRV_PCM_HW_PARAM_CHANNELS);
 	interval->min = channels;
 	interval->max = channels;
+
+	pr_debug("%s: channels = %d\n", __func__, channels);
 }
 
 static int soc_pcm_hw_clean(struct snd_soc_pcm_runtime *rtd,
@@ -1001,6 +1007,8 @@ static int __soc_pcm_hw_params(struct snd_soc_pcm_runtime *rtd,
 		struct snd_pcm_hw_params codec_params;
 		unsigned int tdm_mask = snd_soc_dai_tdm_mask_get(codec_dai, substream->stream);
 
+		pr_debug("%s, tdm_mask = 0x%08x\n", __func__, tdm_mask);
+
 		/*
 		 * Skip CODECs which don't support the current stream type,
 		 * the idea being that if a CODEC is not used for the currently
@@ -1021,9 +1029,21 @@ static int __soc_pcm_hw_params(struct snd_soc_pcm_runtime *rtd,
 		/* copy params for each codec */
 		codec_params = *params;
 
+		{
+			pr_debug("%s %d\n", __func__, __LINE__);
+			pr_debug("bps = %u, phy width = %u, rate = %u, channels = %u\n", params_width(params), params_physical_width(params),
+				 params_rate(params), params_channels(params));
+		}
+
 		/* fixup params based on TDM slot masks */
 		if (tdm_mask)
 			soc_pcm_codec_params_fixup(&codec_params, tdm_mask);
+
+		{
+			pr_debug("%s %d\n", __func__, __LINE__);
+			pr_debug("bps = %u, phy width = %u, rate = %u, channels = %u\n", params_width(params), params_physical_width(params),
+				 params_rate(params), params_channels(params));
+		}
 
 		ret = snd_soc_dai_hw_params(codec_dai, substream,
 					    &codec_params);

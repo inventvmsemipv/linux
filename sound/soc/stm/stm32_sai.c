@@ -5,7 +5,7 @@
  * Copyright (C) 2016, STMicroelectronics - All Rights Reserved
  * Author(s): Olivier Moysan <olivier.moysan@st.com> for STMicroelectronics.
  */
-
+#define DEBUG 1
 #include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/delay.h>

@@ -8,6 +8,7 @@
 // Mark Brown <broonie@opensource.wolfsonmicro.com>
 // Kuninori Morimoto <kuninori.morimoto.gx@renesas.com>
 //
+#define DEBUG 1
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
 #include <sound/soc.h>
@@ -332,13 +333,18 @@ int snd_soc_component_open(struct snd_soc_component *component,
 {
 	int ret = 0;
 
-	if (component->driver->open)
+	pr_debug("%s %d, component = %s\n", __func__, __LINE__,
+		 component->name);
+	if (component->driver->open) {
+		pr_debug("%s, open = %pSR\n", __func__, component->driver->open);
 		ret = component->driver->open(component, substream);
-
+		pr_debug("%s %d, ret = %d\n", __func__, __LINE__, ret);
+	}
+	pr_debug("%s %d, ret = %d\n", __func__, __LINE__, ret);
 	/* mark substream if succeeded */
 	if (ret == 0)
 		soc_component_mark_push(component, substream, open);
-
+	pr_debug("%s %d, ret = %d\n", __func__, __LINE__, ret);
 	return soc_component_ret(component, ret);
 }
 

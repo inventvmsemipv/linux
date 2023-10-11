@@ -2,7 +2,7 @@
 //
 //  Copyright (C) 2013, Analog Devices Inc.
 //	Author: Lars-Peter Clausen <lars@metafoo.de>
-
+#define DEBUG 1
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/dmaengine.h>
@@ -152,10 +152,12 @@ static int dmaengine_pcm_open(struct snd_soc_component *component,
 	struct dma_chan *chan = pcm->chan[substream->stream];
 	int ret;
 
+	pr_debug("%s, pcm = %p, chan = %p\n", __func__, pcm, chan);
 	ret = dmaengine_pcm_set_runtime_hwparams(component, substream);
-	if (ret)
+	if (ret) {
+		pr_debug("%s %d, ret = %d\n", __func__, __LINE__, ret);
 		return ret;
-
+	}
 	return snd_dmaengine_pcm_open(substream, chan);
 }
 
@@ -377,6 +379,8 @@ static int dmaengine_pcm_request_chan_of(struct dmaengine_pcm *pcm,
 		if (config->chan_names[i])
 			name = config->chan_names[i];
 		chan = dma_request_chan(dev, name);
+		dev_dbg(dev, "requested, stream %d chan %s, chan = %p\n",
+			i, name, chan);
 		if (IS_ERR(chan)) {
 			/*
 			 * Only report probe deferral errors, channels
