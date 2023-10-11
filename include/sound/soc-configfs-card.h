@@ -14,7 +14,7 @@
 #define MAX_CODECS 4
 #define MAX_CPUS   2
 
-struct asoc_configfs_dai_link {
+struct asoc_configfs_dai_data {
 	char *component_dev_name;
 	struct bus_type *component_bt;
 	char *component_dai_name;
@@ -36,9 +36,9 @@ struct asoc_configfs_soundcard {
 	int ncpus;
 	/* Total number of slots for TDM */
 	unsigned long total_slots;
-	struct asoc_configfs_dai_link cpus[MAX_CPUS];
+	struct asoc_configfs_dai_data cpus[MAX_CPUS];
 	int ncodecs;
-	struct asoc_configfs_dai_link codecs[MAX_CODECS];
+	struct asoc_configfs_dai_data codecs[MAX_CODECS];
 	struct platform_device *pdev;
 };
 

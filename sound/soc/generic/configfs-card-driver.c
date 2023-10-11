@@ -24,14 +24,14 @@ struct configfs_sc_priv {
 };
 
 static void setup_name_ofnode(struct snd_soc_dai_link_component *dlc,
-			      struct asoc_configfs_dai_link *dl)
+			      struct asoc_configfs_dai_data *dd)
 {
-	struct device *dev = bus_find_device_by_name(dl->component_bt,
+	struct device *dev = bus_find_device_by_name(dd->component_bt,
 						     NULL,
-						     dl->component_dev_name);
+						     dd->component_dev_name);
 
 	if (!dev || !dev->of_node) {
-		dlc->name = dl->component_dev_name;
+		dlc->name = dd->component_dev_name;
 		pr_debug("%s: assigning name %s\n", __func__, dlc->name);
 		return;
 	}
@@ -248,7 +248,7 @@ static int configfs_sc_probe(struct platform_device *pdev)
 		card->num_configs = link->num_codecs;
 	}
 	for (i = 0; i < link->num_codecs; i++) {
-		struct asoc_configfs_dai_link *c = &configfs_data->codecs[i];
+		struct asoc_configfs_dai_data *c = &configfs_data->codecs[i];
 
 		setup_name_ofnode(&link->codecs[i], c);
 		link->codecs[i].dai_name = c->component_dai_name;

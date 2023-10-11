@@ -18,10 +18,10 @@ to_asoc_configfs_soundcard(struct config_group *g)
 	return container_of(g, struct asoc_configfs_soundcard, group);
 }
 
-static inline struct asoc_configfs_dai_link *
-to_asoc_configfs_dai_link(struct config_group *g)
+static inline struct asoc_configfs_dai_data *
+to_asoc_configfs_dai_data(struct config_group *g)
 {
-	return container_of(g, struct asoc_configfs_dai_link, group);
+	return container_of(g, struct asoc_configfs_dai_data, group);
 }
 
 struct btype {
@@ -38,152 +38,152 @@ struct btype {
 	},
 };
 
-static ssize_t asoc_card_dai_link_comp_bustype_store(struct config_item *item,
+static ssize_t asoc_card_dai_data_comp_bustype_store(struct config_item *item,
 						     const char *page,
 						     size_t len)
 {
-	struct asoc_configfs_dai_link *dl =
-		to_asoc_configfs_dai_link(to_config_group(item));
+	struct asoc_configfs_dai_data *dd =
+		to_asoc_configfs_dai_data(to_config_group(item));
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(bus_types); i++) {
 		if (!strncmp(bus_types[i].name, page,
 			     strnlen(bus_types[i].name, len))) {
-			dl->component_bt = bus_types[i].bt;
+			dd->component_bt = bus_types[i].bt;
 			return len;
 		}
 	}
 	return -EINVAL;
 }
 
-static ssize_t asoc_card_dai_link_comp_devname_store(struct config_item *item,
+static ssize_t asoc_card_dai_data_comp_devname_store(struct config_item *item,
 						     const char *page,
 						     size_t len)
 {
-	struct asoc_configfs_dai_link *dl =
-		to_asoc_configfs_dai_link(to_config_group(item));
+	struct asoc_configfs_dai_data *dd =
+		to_asoc_configfs_dai_data(to_config_group(item));
 
-	if (dl->component_dev_name)
+	if (dd->component_dev_name)
 		/* Already assigned previously ? */
-		kfree(dl->component_dev_name);
-	dl->component_dev_name = kstrndup(page, PAGE_SIZE, GFP_KERNEL);
-	dl->component_dev_name[strlen(dl->component_dev_name) - 1] = 0;
-	pr_debug("dai_link->component_dev_name = %s\n", dl->component_dev_name);
-	if (!dl->component_dev_name)
+		kfree(dd->component_dev_name);
+	dd->component_dev_name = kstrndup(page, PAGE_SIZE, GFP_KERNEL);
+	dd->component_dev_name[strlen(dd->component_dev_name) - 1] = 0;
+	pr_debug("dai_data->component_dev_name = %s\n", dd->component_dev_name);
+	if (!dd->component_dev_name)
 		return -ENOMEM;
 	return len;
 }
 
-static ssize_t asoc_card_dai_link_comp_dainame_store(struct config_item *item,
+static ssize_t asoc_card_dai_data_comp_dainame_store(struct config_item *item,
 						     const char *page,
 						     size_t len)
 {
-	struct asoc_configfs_dai_link *dl =
-		to_asoc_configfs_dai_link(to_config_group(item));
+	struct asoc_configfs_dai_data *dd =
+		to_asoc_configfs_dai_data(to_config_group(item));
 
-	if (dl->component_dai_name)
+	if (dd->component_dai_name)
 		/* Already assigned previously ? */
-		kfree(dl->component_dai_name);
-	dl->component_dai_name = kstrndup(page, PAGE_SIZE, GFP_KERNEL);
-	dl->component_dai_name[strlen(dl->component_dai_name) - 1] = 0;
-	pr_debug("dai_link->component_dai_name = %s\n", dl->component_dai_name);
-	if (!dl->component_dai_name)
+		kfree(dd->component_dai_name);
+	dd->component_dai_name = kstrndup(page, PAGE_SIZE, GFP_KERNEL);
+	dd->component_dai_name[strlen(dd->component_dai_name) - 1] = 0;
+	pr_debug("dai_data->component_dai_name = %s\n", dd->component_dai_name);
+	if (!dd->component_dai_name)
 		return -ENOMEM;
 	return len;
 }
 
 
-static ssize_t asoc_card_dai_link_slot_width_store(struct config_item *item,
+static ssize_t asoc_card_dai_data_slot_width_store(struct config_item *item,
 						   const char *page, size_t len)
 {
-	struct asoc_configfs_dai_link *dl =
-		to_asoc_configfs_dai_link(to_config_group(item));
+	struct asoc_configfs_dai_data *dd =
+		to_asoc_configfs_dai_data(to_config_group(item));
 	int ret;
 
-	ret = kstrtoul(page, 10, &dl->slot_width);
+	ret = kstrtoul(page, 10, &dd->slot_width);
 	return ret < 0 ? ret : len;
 }
 
-static ssize_t asoc_card_dai_link_rx_mask_store(struct config_item *item,
+static ssize_t asoc_card_dai_data_rx_mask_store(struct config_item *item,
 						const char *page, size_t len)
 {
-	struct asoc_configfs_dai_link *dl =
-		to_asoc_configfs_dai_link(to_config_group(item));
+	struct asoc_configfs_dai_data *dd =
+		to_asoc_configfs_dai_data(to_config_group(item));
 	int ret;
 
-	ret = kstrtoul(page, 16, &dl->rx_mask);
+	ret = kstrtoul(page, 16, &dd->rx_mask);
 	return ret < 0 ? ret : len;
 }
 
-static ssize_t asoc_card_dai_link_tx_mask_store(struct config_item *item,
+static ssize_t asoc_card_dai_data_tx_mask_store(struct config_item *item,
 						const char *page, size_t len)
 {
-	struct asoc_configfs_dai_link *dl =
-		to_asoc_configfs_dai_link(to_config_group(item));
+	struct asoc_configfs_dai_data *dd =
+		to_asoc_configfs_dai_data(to_config_group(item));
 	int ret;
 
-	ret = kstrtoul(page, 16, &dl->tx_mask);
+	ret = kstrtoul(page, 16, &dd->tx_mask);
 	return ret < 0 ? ret : len;
 }
 
-static ssize_t asoc_card_dai_link_mclk_fs_store(struct config_item *item,
+static ssize_t asoc_card_dai_data_mclk_fs_store(struct config_item *item,
 						const char *page, size_t len)
 {
-	struct asoc_configfs_dai_link *dl =
-		to_asoc_configfs_dai_link(to_config_group(item));
+	struct asoc_configfs_dai_data *dd =
+		to_asoc_configfs_dai_data(to_config_group(item));
 	int ret;
 	
-	ret = kstrtoul(page, 10, &dl->mclk_fs);
+	ret = kstrtoul(page, 10, &dd->mclk_fs);
 	return ret < 0 ? ret : len;
 }
 
 
-CONFIGFS_ATTR_WO(asoc_card_dai_link_, comp_bustype);
-CONFIGFS_ATTR_WO(asoc_card_dai_link_, comp_devname);
-CONFIGFS_ATTR_WO(asoc_card_dai_link_, comp_dainame);
-CONFIGFS_ATTR_WO(asoc_card_dai_link_, slot_width);
-CONFIGFS_ATTR_WO(asoc_card_dai_link_, rx_mask);
-CONFIGFS_ATTR_WO(asoc_card_dai_link_, tx_mask);
-CONFIGFS_ATTR_WO(asoc_card_dai_link_, mclk_fs);
+CONFIGFS_ATTR_WO(asoc_card_dai_data_, comp_bustype);
+CONFIGFS_ATTR_WO(asoc_card_dai_data_, comp_devname);
+CONFIGFS_ATTR_WO(asoc_card_dai_data_, comp_dainame);
+CONFIGFS_ATTR_WO(asoc_card_dai_data_, slot_width);
+CONFIGFS_ATTR_WO(asoc_card_dai_data_, rx_mask);
+CONFIGFS_ATTR_WO(asoc_card_dai_data_, tx_mask);
+CONFIGFS_ATTR_WO(asoc_card_dai_data_, mclk_fs);
 
-static struct configfs_attribute *asoc_card_dai_link_attrs[] = {
-	&asoc_card_dai_link_attr_comp_bustype,
-	&asoc_card_dai_link_attr_comp_devname,
-	&asoc_card_dai_link_attr_comp_dainame,
-	&asoc_card_dai_link_attr_slot_width,
-	&asoc_card_dai_link_attr_rx_mask,
-	&asoc_card_dai_link_attr_tx_mask,
-	&asoc_card_dai_link_attr_mclk_fs,
+static struct configfs_attribute *asoc_card_dai_data_attrs[] = {
+	&asoc_card_dai_data_attr_comp_bustype,
+	&asoc_card_dai_data_attr_comp_devname,
+	&asoc_card_dai_data_attr_comp_dainame,
+	&asoc_card_dai_data_attr_slot_width,
+	&asoc_card_dai_data_attr_rx_mask,
+	&asoc_card_dai_data_attr_tx_mask,
+	&asoc_card_dai_data_attr_mclk_fs,
 	NULL,
 };
 
 static void dai_type_item_release(struct config_item *item)
 {
 	struct config_group *gr = to_config_group(item);
-	struct asoc_configfs_dai_link *dl = to_asoc_configfs_dai_link(gr);
+	struct asoc_configfs_dai_data *dd = to_asoc_configfs_dai_data(gr);
 
-	pr_debug("%s invoked, item = %p, group = %p, dai_link = %p\n",
-		 __func__, item, gr, dl);
-	if (dl->component_dev_name)
-		kfree(dl->component_dev_name);
+	pr_debug("%s invoked, item = %p, group = %p, dai_data = %p\n",
+		 __func__, item, gr, dd);
+	if (dd->component_dev_name)
+		kfree(dd->component_dev_name);
 }
 
-static struct configfs_item_operations dai_link_type_item_ops = {
+static struct configfs_item_operations dai_data_type_item_ops = {
 	.release = dai_type_item_release,
 };
 
-static const struct config_item_type dai_link_type = {
-	.ct_item_ops = &dai_link_type_item_ops,
+static const struct config_item_type dai_data_type = {
+	.ct_item_ops = &dai_data_type_item_ops,
 	.ct_owner = THIS_MODULE,
-	.ct_attrs = asoc_card_dai_link_attrs
+	.ct_attrs = asoc_card_dai_data_attrs
 };
 
-static struct config_group *_make_codec_dai_link(struct config_group *group,
+static struct config_group *_make_codec_dai_data(struct config_group *group,
 						 const char *name)
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(group);
-	struct asoc_configfs_dai_link *out;
+	struct asoc_configfs_dai_data *out;
 
 	if (sc->ncodecs >= MAX_CODECS) {
 		pr_err("max %d codec dai links allowed\n", MAX_CPUS);
@@ -194,16 +194,16 @@ static struct config_group *_make_codec_dai_link(struct config_group *group,
 
 	pr_debug("created codec dai link %s, %p\n", name, out);
 
-	config_group_init_type_name(&out->group, name, &dai_link_type);
+	config_group_init_type_name(&out->group, name, &dai_data_type);
 	return &out->group;
 }
 
-static struct config_group *_make_cpu_dai_link(struct config_group *group,
+static struct config_group *_make_cpu_dai_data(struct config_group *group,
 					       const char *name)
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(group);
-	struct asoc_configfs_dai_link *out;
+	struct asoc_configfs_dai_data *out;
 
 	if (sc->ncpus >= MAX_CPUS) {
 		pr_err("max %d cpu dais allowed\n", MAX_CPUS);
@@ -214,7 +214,7 @@ static struct config_group *_make_cpu_dai_link(struct config_group *group,
 
 	pr_debug("created cpu dai %s, %p\n", name, out);
 
-	config_group_init_type_name(&out->group, name, &dai_link_type);
+	config_group_init_type_name(&out->group, name, &dai_data_type);
 	return &out->group;
 }
 
@@ -222,9 +222,9 @@ static struct config_group *
 single_soundcard_type_make_group(struct config_group *group, const char *name)
 {
 	if (!strncmp(name, "codec", 5))
-		return _make_codec_dai_link(group, name);
+		return _make_codec_dai_data(group, name);
 	if (!strncmp(name, "cpu", 3))
-		return _make_cpu_dai_link(group, name);
+		return _make_cpu_dai_data(group, name);
 	return ERR_PTR(-EINVAL);
 }
 
@@ -238,8 +238,8 @@ static const char *dai_formats[] = {
 	[SND_SOC_DAIFMT_PDM] = "pdm",
 };
 
-static ssize_t asoc_card_format_store(struct config_item *item,
-				      const char *page, size_t len)
+static ssize_t asoc_card_dai_link_format_store(struct config_item *item,
+					       const char *page, size_t len)
 {
 	int i;
 	struct asoc_configfs_soundcard *sc =
@@ -256,8 +256,9 @@ static ssize_t asoc_card_format_store(struct config_item *item,
 	return -EINVAL;
 }
 
-static ssize_t asoc_card_invert_fsyn_store(struct config_item *item,
-					   const char *page, size_t len)
+static ssize_t asoc_card_dai_link_invert_fsyn_store(struct config_item *item,
+						    const char *page,
+						    size_t len)
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
@@ -268,8 +269,9 @@ static ssize_t asoc_card_invert_fsyn_store(struct config_item *item,
 	return ret < 0 ? ret : len;
 }
 
-static ssize_t asoc_card_invert_bclk_store(struct config_item *item,
-					   const char *page, size_t len)
+static ssize_t asoc_card_dai_link_invert_bclk_store(struct config_item *item,
+						    const char *page,
+						    size_t len)
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
@@ -291,8 +293,9 @@ static ssize_t _set_bitclock_master(const char *page, size_t len,
 	return len;
 }
 
-static ssize_t asoc_card_bitclock_master_store(struct config_item *item,
-					       const char *page, size_t len)
+static ssize_t
+asoc_card_dai_link_bitclock_master_store(struct config_item *item,
+					 const char *page, size_t len)
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
@@ -301,8 +304,9 @@ static ssize_t asoc_card_bitclock_master_store(struct config_item *item,
 	return _set_bitclock_master(page, len, &sc->cpu_bitclock_master);
 }
 
-static ssize_t asoc_card_frameclock_master_store(struct config_item *item,
-						 const char *page, size_t len)
+static ssize_t
+asoc_card_dai_link_frameclock_master_store(struct config_item *item,
+					   const char *page, size_t len)
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
@@ -329,8 +333,8 @@ static void fixup_total_slots(struct asoc_configfs_soundcard *sc)
 	pr_debug("%s calculated %lu slots\n", __func__, sc->total_slots);
 }
 
-static ssize_t asoc_card_command_store(struct config_item *item,
-				       const char *page, size_t len)
+static ssize_t asoc_card_dai_link_command_store(struct config_item *item,
+						const char *page, size_t len)
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
@@ -354,8 +358,9 @@ static ssize_t asoc_card_command_store(struct config_item *item,
 	return len;
 }
 
-static ssize_t asoc_card_total_slots_store(struct config_item *item,
-					   const char *page, size_t len)
+static ssize_t asoc_card_dai_link_total_slots_store(struct config_item *item,
+						    const char *page,
+						    size_t len)
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
@@ -365,22 +370,22 @@ static ssize_t asoc_card_total_slots_store(struct config_item *item,
 	return ret < 0 ? ret : len;
 }
 
-CONFIGFS_ATTR_WO(asoc_card_, format);
-CONFIGFS_ATTR_WO(asoc_card_, invert_fsyn);
-CONFIGFS_ATTR_WO(asoc_card_, invert_bclk);
-CONFIGFS_ATTR_WO(asoc_card_, bitclock_master);
-CONFIGFS_ATTR_WO(asoc_card_, frameclock_master);
-CONFIGFS_ATTR_WO(asoc_card_, command);
-CONFIGFS_ATTR_WO(asoc_card_, total_slots);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, format);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, invert_fsyn);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, invert_bclk);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, bitclock_master);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, frameclock_master);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, command);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, total_slots);
 
-static struct configfs_attribute *soundcard_root_attrs[] = {
-	&asoc_card_attr_format,
-	&asoc_card_attr_invert_fsyn,
-	&asoc_card_attr_invert_bclk,
-	&asoc_card_attr_bitclock_master,
-	&asoc_card_attr_frameclock_master,
-	&asoc_card_attr_command,
-	&asoc_card_attr_total_slots,
+static struct configfs_attribute *soundcard_dai_link_attrs[] = {
+	&asoc_card_dai_link_attr_format,
+	&asoc_card_dai_link_attr_invert_fsyn,
+	&asoc_card_dai_link_attr_invert_bclk,
+	&asoc_card_dai_link_attr_bitclock_master,
+	&asoc_card_dai_link_attr_frameclock_master,
+	&asoc_card_dai_link_attr_command,
+	&asoc_card_dai_link_attr_total_slots,
 	NULL,
 };
 
@@ -407,7 +412,7 @@ static struct configfs_group_operations single_soundcard_type_group_ops = {
 static const struct config_item_type single_soundcard_type = {
 	.ct_item_ops = &single_soundcard_type_item_ops,
 	.ct_group_ops = &single_soundcard_type_group_ops,
-	.ct_attrs = soundcard_root_attrs,
+	.ct_attrs = soundcard_dai_link_attrs,
 	.ct_owner = THIS_MODULE,
 };
 
