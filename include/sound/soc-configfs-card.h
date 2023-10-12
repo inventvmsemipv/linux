@@ -14,6 +14,8 @@
 #define MAX_CODECS 4
 #define MAX_CPUS   2
 
+#define MAX_DAI_LINKS 4
+
 struct asoc_configfs_dai_data {
 	char *component_dev_name;
 	struct bus_type *component_bt;
@@ -25,9 +27,9 @@ struct asoc_configfs_dai_data {
 	struct config_group group;
 };
 
-struct asoc_configfs_soundcard {
+struct asoc_configfs_dai_link_data {
 	const char *name;
-	struct config_group group;
+	const char *stream_name;
 	int format;
 	unsigned long invert_fsyn;
 	unsigned long invert_bclk;
@@ -39,7 +41,14 @@ struct asoc_configfs_soundcard {
 	struct asoc_configfs_dai_data cpus[MAX_CPUS];
 	int ncodecs;
 	struct asoc_configfs_dai_data codecs[MAX_CODECS];
+};
+
+struct asoc_configfs_soundcard {
+	const char *name;
 	struct platform_device *pdev;
+	int ndai_links;
+	struct asoc_configfs_dai_link_data dai_links[MAX_DAI_LINKS];
+	struct config_group group;
 };
 
 #endif /* __LINUX_SND_SOC_CONFIGFS_CARD_H */

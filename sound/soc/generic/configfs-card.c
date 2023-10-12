@@ -183,16 +183,17 @@ static struct config_group *_make_codec_dai_data(struct config_group *group,
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(group);
+	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
 	struct asoc_configfs_dai_data *out;
 
-	if (sc->ncodecs >= MAX_CODECS) {
+	if (dld->ncodecs >= MAX_CODECS) {
 		pr_err("max %d codec dai links allowed\n", MAX_CPUS);
 		return ERR_PTR(-ENOMEM);
 	}
 
-	out = &sc->codecs[sc->ncodecs++];
+	out = &dld->codecs[dld->ncodecs++];
 
-	pr_debug("created codec dai link %s, %p\n", name, out);
+	pr_debug("created codec dai %s, %p\n", name, out);
 
 	config_group_init_type_name(&out->group, name, &dai_data_type);
 	return &out->group;
@@ -203,14 +204,15 @@ static struct config_group *_make_cpu_dai_data(struct config_group *group,
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(group);
+	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
 	struct asoc_configfs_dai_data *out;
 
-	if (sc->ncpus >= MAX_CPUS) {
+	if (dld->ncpus >= MAX_CPUS) {
 		pr_err("max %d cpu dais allowed\n", MAX_CPUS);
 		return ERR_PTR(-ENOMEM);
 	}
 
-	out = &sc->cpus[sc->ncpus++];
+	out = &dld->cpus[dld->ncpus++];
 
 	pr_debug("created cpu dai %s, %p\n", name, out);
 
@@ -244,13 +246,16 @@ static ssize_t asoc_card_dai_link_format_store(struct config_item *item,
 	int i;
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
+	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
+
+	sc->ndai_links = 1;
 
 	pr_debug("%s: written %s\n", __func__, page);
 	for (i = SND_SOC_DAIFMT_I2S; i <= SND_SOC_DAIFMT_PDM; i++)
 		if (!strncmp(page, dai_formats[i], strlen(dai_formats[i]))) {
-			sc->format = i;
+			dld->format = i;
 			if (i == SND_SOC_DAIFMT_I2S)
-				sc->total_slots = 2;
+				dld->total_slots = 2;
 			return len;
 		}
 	return -EINVAL;
@@ -262,10 +267,11 @@ static ssize_t asoc_card_dai_link_invert_fsyn_store(struct config_item *item,
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
+	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
 	int ret;
 
 	pr_debug("%s: written %s\n", __func__, page);
-	ret = kstrtoul(page, 10, &sc->invert_fsyn);
+	ret = kstrtoul(page, 10, &dld->invert_fsyn);
 	return ret < 0 ? ret : len;
 }
 
@@ -275,10 +281,11 @@ static ssize_t asoc_card_dai_link_invert_bclk_store(struct config_item *item,
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
+	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
 	int ret;
 
 	pr_debug("%s: written %s\n", __func__, page);
-	ret = kstrtoul(page, 10, &sc->invert_bclk);
+	ret = kstrtoul(page, 10, &dld->invert_bclk);
 	return ret < 0 ? ret : len;
 }
 
@@ -299,9 +306,10 @@ asoc_card_dai_link_bitclock_master_store(struct config_item *item,
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
+	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
 
 	pr_debug("%s: written %s\n", __func__, page);
-	return _set_bitclock_master(page, len, &sc->cpu_bitclock_master);
+	return _set_bitclock_master(page, len, &dld->cpu_bitclock_master);
 }
 
 static ssize_t
@@ -310,27 +318,28 @@ asoc_card_dai_link_frameclock_master_store(struct config_item *item,
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
+	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
 
 	pr_debug("%s: written %s\n", __func__, page);
-	return _set_bitclock_master(page, len, &sc->cpu_frameclock_master);
+	return _set_bitclock_master(page, len, &dld->cpu_frameclock_master);
 }
 
-static void fixup_total_slots(struct asoc_configfs_soundcard *sc)
+static void fixup_total_slots(struct asoc_configfs_dai_link_data *dld)
 {
 	int i;
 
-	if (sc->total_slots)
+	if (dld->total_slots)
 		/* Already assigned (I2S) */
 		return;
 
-	for (i = 0; i < sc->ncodecs; i++) {
+	for (i = 0; i < dld->ncodecs; i++) {
 		int rxns, txns;
 
-		rxns = hweight_long(sc->codecs[i].rx_mask);
-		txns = hweight_long(sc->codecs[i].tx_mask);
-		sc->total_slots += max(rxns, txns);
+		rxns = hweight_long(dld->codecs[i].rx_mask);
+		txns = hweight_long(dld->codecs[i].tx_mask);
+		dld->total_slots += max(rxns, txns);
 	}
-	pr_debug("%s calculated %lu slots\n", __func__, sc->total_slots);
+	pr_debug("%s calculated %lu slots\n", __func__, dld->total_slots);
 }
 
 static ssize_t asoc_card_dai_link_command_store(struct config_item *item,
@@ -338,13 +347,14 @@ static ssize_t asoc_card_dai_link_command_store(struct config_item *item,
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
+	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
 	struct platform_device *pdev;
 
 	if (strncmp(page, "start", 5)) {
 		pr_err("say start to register and start up the board\n");
 		return -EINVAL;
 	}
-	fixup_total_slots(sc);
+	fixup_total_slots(dld);
 	pdev = platform_device_register_resndata(NULL, "configfssc",
 						 atomic_inc_return(&asoc_sc_instance),
 						 NULL, 0,
@@ -366,7 +376,7 @@ static ssize_t asoc_card_dai_link_total_slots_store(struct config_item *item,
 		to_asoc_configfs_soundcard(to_config_group(item));
 	int ret;
 
-	ret = kstrtoul(page, 10, &sc->total_slots);
+	ret = kstrtoul(page, 10, &sc->dai_links[0].total_slots);
 	return ret < 0 ? ret : len;
 }
 
@@ -420,11 +430,16 @@ static struct config_group *
 asoc_soundcard_make_group(struct config_group *group, const char *name)
 {
 	struct asoc_configfs_soundcard *out = kzalloc(sizeof(*out), GFP_KERNEL);
+	struct asoc_configfs_dai_link_data *dld;
 
 	pr_err("%s: allocated soundcard %p (%s)\n", __func__, out, name);
 	if (!out)
 		return ERR_PTR(-ENOMEM);
+	dld = &out->dai_links[0];
 	out->name = kstrndup(name, 32, GFP_KERNEL);
+	out->ndai_links = 1;
+	dld->name = "configurable-link";
+	dld->stream_name = "configurable-link-stream";
 	config_group_init_type_name(&out->group, name, &single_soundcard_type);
 	return &out->group;
 }

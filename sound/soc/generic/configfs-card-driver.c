@@ -12,15 +12,19 @@
 struct configfs_sc_tdm_data {
 	unsigned int rx_mask;
 	unsigned int tx_mask;
-	unsigned long total_slots;
 	int slot_width;
+	unsigned int mclk_fs;
+};
+
+struct configfs_sc_dai_link_data {
+	unsigned long total_slots;
+	struct configfs_sc_tdm_data *cpus_tdm_data;
+	struct configfs_sc_tdm_data *codecs_tdm_data;
 };
 
 struct configfs_sc_priv {
-	struct snd_soc_dai_link dai_link;
-	unsigned int mclk_fs;
-	struct configfs_sc_tdm_data *cpus_tdm_data;
-	struct configfs_sc_tdm_data *codecs_tdm_data;
+	struct snd_soc_dai_link dai_link[MAX_DAI_LINKS];
+	struct configfs_sc_dai_link_data dai_link_data[MAX_DAI_LINKS];
 };
 
 static void setup_name_ofnode(struct snd_soc_dai_link_component *dlc,
@@ -118,48 +122,123 @@ static int configfs_sc_late_probe(struct snd_soc_card *card)
 	struct snd_soc_pcm_runtime *rtd;
 	struct configfs_sc_priv *priv;
 	struct configfs_sc_tdm_data *tdata;
-	struct snd_soc_dai *cpu_dai, *codec_dai;
-	int i, ret;
+	struct snd_soc_dai_link *dai_link;
+	int i, j, ret;
 
-	rtd = snd_soc_get_pcm_runtime(card, card->dai_link);
-	dev_dbg(rtd->card->dev, "%s entered\n", __func__);
-	priv = snd_soc_card_get_drvdata(rtd->card);
+	dev_dbg(card->dev, "%s entered\n", __func__);
+	priv = snd_soc_card_get_drvdata(card);
 
-	for_each_rtd_cpu_dais(rtd, i, cpu_dai) {
-		ret = snd_soc_dai_set_sysclk(cpu_dai, 0,
-					     24576000/2,
-					     SND_SOC_CLOCK_IN);
-		if (ret < 0)
-			return ret;
+	for_each_card_prelinks(card, j, dai_link) {
+		struct snd_soc_dai *cpu_dai, *codec_dai;
+		struct configfs_sc_dai_link_data *dl_data =
+			&priv->dai_link_data[j];
 
-		tdata = &priv->cpus_tdm_data[i];
-		ret = snd_soc_dai_set_tdm_slot(cpu_dai, tdata->tx_mask,
-					       tdata->rx_mask,
-					       tdata->total_slots,
-					       tdata->slot_width);
-		if (ret < 0 && ret != -ENOTSUPP)
-			return ret;
-	}
-	for_each_rtd_codec_dais(rtd, i, codec_dai) {
-		tdata = &priv->codecs_tdm_data[i];
-		ret = snd_soc_dai_set_tdm_slot(codec_dai,
-					       tdata->tx_mask, tdata->rx_mask,
-					       tdata->total_slots,
-					       tdata->slot_width);
-		if (ret < 0 && ret != -ENOTSUPP)
-			return ret;
+		rtd = snd_soc_get_pcm_runtime(card, dai_link);
+		for_each_rtd_cpu_dais(rtd, i, cpu_dai) {
+			ret = snd_soc_dai_set_sysclk(cpu_dai, 0,
+						     24576000/2,
+						     SND_SOC_CLOCK_IN);
+			if (ret < 0)
+				return ret;
+
+			tdata = &dl_data->cpus_tdm_data[i];
+			dev_dbg(rtd->card->dev, "dai link %d, cpu %d, tx_mask = 0x%08x, rx_mask = 0x%08x, total_slots = %ld, slot_width = %u\n", j, i,
+				tdata->tx_mask, tdata->rx_mask,
+				dl_data->total_slots, tdata->slot_width);
+			ret = snd_soc_dai_set_tdm_slot(cpu_dai, tdata->tx_mask,
+						       tdata->rx_mask,
+						       dl_data->total_slots,
+						       tdata->slot_width);
+			if (ret < 0 && ret != -ENOTSUPP)
+				return ret;
+		}
+		for_each_rtd_codec_dais(rtd, i, codec_dai) {
+			tdata = &dl_data->codecs_tdm_data[i];
+			dev_dbg(rtd->card->dev, "dai link %d, codec %d, tx_mask = 0x%08x, rx_mask = 0x%08x, total_slots = %ld, slot_width = %u\n", j, i,
+				tdata->tx_mask, tdata->rx_mask,
+				dl_data->total_slots, tdata->slot_width);
+			ret = snd_soc_dai_set_tdm_slot(codec_dai,
+						       tdata->tx_mask,
+						       tdata->rx_mask,
+						       dl_data->total_slots,
+						       tdata->slot_width);
+			if (ret < 0 && ret != -ENOTSUPP)
+				return ret;
+		}
 	}
 	return 0;
 }
 
-static int configfs_sc_probe(struct platform_device *pdev)
+static int add_dai_link(struct platform_device *pdev,
+			struct configfs_sc_priv *priv,
+			struct snd_soc_dai_link *link,
+			struct asoc_configfs_dai_link_data *dl_pdata)
 {
-	struct device *dev = &pdev->dev;
-	struct snd_soc_card *card;
-	struct snd_soc_dai_link *link;
-	struct configfs_sc_priv *priv;
-	struct configfs_sc_tdm_data *tdata;
-	struct asoc_configfs_soundcard *configfs_data;
+	int i;
+
+	link->dai_fmt = dl_pdata->format | SND_SOC_DAIFMT_NB_NF;
+	if (!dl_pdata->cpu_bitclock_master && !dl_pdata->cpu_frameclock_master)
+		link->dai_fmt |= SND_SOC_DAIFMT_CBM_CFM;
+	else if (dl_pdata->cpu_bitclock_master &&
+		 !dl_pdata->cpu_frameclock_master)
+		link->dai_fmt |= SND_SOC_DAIFMT_CBS_CFM;
+	else if (!dl_pdata->cpu_bitclock_master &&
+		 dl_pdata->cpu_frameclock_master)
+		link->dai_fmt |= SND_SOC_DAIFMT_CBM_CFS;
+	else
+		link->dai_fmt |= SND_SOC_DAIFMT_CBS_CFS;
+	if (dl_pdata->invert_fsyn && dl_pdata->invert_bclk)
+		link->dai_fmt |= SND_SOC_DAIFMT_IB_IF;
+	if (dl_pdata->invert_fsyn && !dl_pdata->invert_bclk)
+		link->dai_fmt |= SND_SOC_DAIFMT_NB_IF;
+	if (!dl_pdata->invert_fsyn && dl_pdata->invert_bclk)
+		link->dai_fmt |= SND_SOC_DAIFMT_IB_NF;
+
+	link->name = dl_pdata->name;
+	link->stream_name = dl_pdata->stream_name;
+
+	link->num_cpus = dl_pdata->ncpus;
+	link->cpus = devm_kzalloc(&pdev->dev,
+				  sizeof(link->cpus[0]) * link->num_cpus,
+				  GFP_KERNEL);
+	if (!link->cpus)
+		return -ENOMEM;
+	for (i = 0; i < link->num_cpus; i++) {
+		setup_name_ofnode(&link->cpus[i], &dl_pdata->cpus[i]);
+		link->cpus[i].dai_name =
+			dl_pdata->cpus[i].component_dai_name;
+		dev_dbg(&pdev->dev, "link->cpus[%d].name = %s\n", i,
+			link->cpus[i].name);
+	}
+	link->num_codecs = dl_pdata->ncodecs;
+	link->codecs = devm_kzalloc(&pdev->dev,
+				    sizeof(link->codecs[0])*link->num_codecs,
+				    GFP_KERNEL);
+	if (!link->codecs)
+		return -ENOMEM;
+	for (i = 0; i < link->num_codecs; i++) {
+		struct asoc_configfs_dai_data *c = &dl_pdata->codecs[i];
+
+		setup_name_ofnode(&link->codecs[i], c);
+		link->codecs[i].dai_name = c->component_dai_name;
+	}
+	link->num_platforms = 1;
+	link->platforms = devm_kzalloc(&pdev->dev,
+				       sizeof(link->platforms[0]) *
+				       link->num_platforms,
+				       GFP_KERNEL);
+	if (!link->platforms)
+		return -ENOMEM;
+	link->ops = &configfs_sc_card_ops;
+	link->platforms->name = link->cpus->name;
+	link->platforms->of_node = link->cpus->of_node;
+	return 0;
+}
+
+static int add_codecs_confs(struct platform_device *pdev,
+			    struct snd_soc_dai_link *link,
+			    struct snd_soc_card *card)
+{
 	struct snd_soc_codec_conf *codec_confs = NULL;
 	const char *stereo_prefixes[2] = {
 		"Left", "Right",
@@ -168,69 +247,8 @@ static int configfs_sc_probe(struct platform_device *pdev)
 		"Ch0", "Ch1", "Ch2", "Ch3", "Ch4", "Ch5", "Ch6", "Ch7",
 	};
 	const char **prefixes = NULL;
-	int i, ret;
+	int i, ret = 0;
 
-	dev_dbg(&pdev->dev, "%s entered\n", __func__);
-	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
-	if (!priv)
-		return -ENOMEM;
-	configfs_data = dev_get_platdata(&pdev->dev);
-	if (!configfs_data) {
-		dev_err(&pdev->dev, "%s: no platform data\n", __func__);
-		return -ENODEV;
-	}
-
-	card = devm_kzalloc(&pdev->dev, sizeof(*card), GFP_KERNEL);
-	if (!card)
-		return -ENOMEM;
-	card->name = configfs_data->name;
-	card->owner = THIS_MODULE;
-	card->late_probe = configfs_sc_late_probe;
-
-	link = &priv->dai_link;
-
-	link->dai_fmt = configfs_data->format | SND_SOC_DAIFMT_NB_NF;
-	if (!configfs_data->cpu_bitclock_master &&
-	    !configfs_data->cpu_frameclock_master)
-		link->dai_fmt |= SND_SOC_DAIFMT_CBM_CFM;
-	else if (configfs_data->cpu_bitclock_master &&
-		 !configfs_data->cpu_frameclock_master)
-		link->dai_fmt |= SND_SOC_DAIFMT_CBS_CFM;
-	else if (!configfs_data->cpu_bitclock_master &&
-		 configfs_data->cpu_frameclock_master)
-		link->dai_fmt |= SND_SOC_DAIFMT_CBM_CFS;
-	else
-		link->dai_fmt |= SND_SOC_DAIFMT_CBS_CFS;
-	if (configfs_data->invert_fsyn && configfs_data->invert_bclk)
-		link->dai_fmt |= SND_SOC_DAIFMT_IB_IF;
-	if (configfs_data->invert_fsyn && !configfs_data->invert_bclk)
-		link->dai_fmt |= SND_SOC_DAIFMT_NB_IF;
-	if (!configfs_data->invert_fsyn && configfs_data->invert_bclk)
-		link->dai_fmt |= SND_SOC_DAIFMT_IB_NF;
-
-	link->name = "configurable-link";
-	link->stream_name = link->name;
-
-	link->num_cpus = configfs_data->ncpus;
-	link->cpus = devm_kzalloc(&pdev->dev,
-				  sizeof(link->cpus[0]) * link->num_cpus,
-				  GFP_KERNEL);
-	if (!link->cpus)
-		return -ENOMEM;
-	for (i = 0; i < link->num_cpus; i++) {
-		setup_name_ofnode(&link->cpus[i], &configfs_data->cpus[i]);
-		link->cpus[i].dai_name =
-			configfs_data->cpus[i].component_dai_name;
-		dev_dbg(&pdev->dev, "link->cpus[%d].name = %s\n", i,
-			link->cpus[i].name);
-	}
-
-	link->num_codecs = configfs_data->ncodecs;
-	link->codecs = devm_kzalloc(&pdev->dev,
-				    sizeof(link->codecs[0])*link->num_codecs,
-				    GFP_KERNEL);
-	if (!link->codecs)
-		return -ENOMEM;
 	if (link->num_codecs > 1) {
 		int sz;
 
@@ -247,63 +265,110 @@ static int configfs_sc_probe(struct platform_device *pdev)
 		card->codec_conf = codec_confs;
 		card->num_configs = link->num_codecs;
 	}
-	for (i = 0; i < link->num_codecs; i++) {
-		struct asoc_configfs_dai_data *c = &configfs_data->codecs[i];
+	for (i = 0; i < link->num_codecs && codec_confs; i++) {
+		if (link->codecs[i].name)
+			codec_confs[i].dlc.name =
+				link->codecs[i].name;
+		else
+			codec_confs[i].dlc.of_node =
+				link->codecs[i].of_node;
+		codec_confs[i].name_prefix = prefixes[i];
+	}
+	return ret;
+}
 
-		setup_name_ofnode(&link->codecs[i], c);
-		link->codecs[i].dai_name = c->component_dai_name;
-		if (codec_confs) {
-			if (link->codecs[i].name)
-				codec_confs[i].dlc.name =
-					link->codecs[i].name;
-			else
-				codec_confs[i].dlc.of_node =
-					link->codecs[i].of_node;
-			codec_confs[i].name_prefix = prefixes[i];
+static int configfs_sc_probe(struct platform_device *pdev)
+{
+	struct device *dev = &pdev->dev;
+	struct snd_soc_card *card;
+	struct configfs_sc_priv *priv;
+	/* Soundcard input platform data */
+	struct asoc_configfs_soundcard *pdata;
+	int i, ret;
+
+	dev_dbg(&pdev->dev, "%s entered\n", __func__);
+	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
+	if (!priv)
+		return -ENOMEM;
+	pdata = dev_get_platdata(&pdev->dev);
+	if (!pdata) {
+		dev_err(&pdev->dev, "%s: no platform data\n", __func__);
+		return -ENODEV;
+	}
+
+	card = devm_kzalloc(&pdev->dev, sizeof(*card), GFP_KERNEL);
+	if (!card)
+		return -ENOMEM;
+	card->name = pdata->name;
+	card->owner = THIS_MODULE;
+	card->late_probe = configfs_sc_late_probe;
+
+	for (i = 0; i < pdata->ndai_links; i++) {
+		struct snd_soc_dai_link *link = &priv->dai_link[i];
+		struct configfs_sc_dai_link_data *dldata =
+			&priv->dai_link_data[i];
+		struct configfs_sc_tdm_data *cpus_tdm_data, *codecs_tdm_data;
+		/* Single dai link platform data */
+		struct asoc_configfs_dai_link_data *dl_pdata =
+			&pdata->dai_links[i];
+		int j, ndais;
+
+		ret = add_dai_link(pdev, priv, link, dl_pdata);
+		if (ret < 0)
+			return ret;
+		ret = add_codecs_confs(pdev, link, card);
+		if (ret < 0)
+			return ret;
+		ndais = link->num_cpus + link->num_codecs;
+		cpus_tdm_data = devm_kzalloc(&pdev->dev,
+					     sizeof(*cpus_tdm_data) * ndais,
+					     GFP_KERNEL);
+		if (!cpus_tdm_data)
+			return -ENOMEM;
+		dldata->cpus_tdm_data = cpus_tdm_data;
+		codecs_tdm_data = &cpus_tdm_data[link->num_cpus];
+		dldata->codecs_tdm_data = codecs_tdm_data;
+		dldata->total_slots = dl_pdata->total_slots;
+
+		/* Parse cpu tdm slots configuration */
+		for (j = 0; j < link->num_cpus; j++) {
+			/* Single dai platform data */
+			struct asoc_configfs_dai_data *dai_pdata =
+				&dl_pdata->cpus[j];
+			/* Runtime tdm data for single dai */
+			struct configfs_sc_tdm_data *tdm_data =
+				&cpus_tdm_data[j];
+
+			tdm_data->tx_mask = dai_pdata->tx_mask;
+			tdm_data->rx_mask = dai_pdata->rx_mask;
+			tdm_data->slot_width = dai_pdata->slot_width;
+			tdm_data->mclk_fs = dai_pdata->mclk_fs;
+			dev_dbg(&pdev->dev, "dai link %d, cpu %d, tx_mask = 0x%08x, rx_mask = 0x%08x, slot_width = %u, mclk_fs = %d\n", i, j,
+				tdm_data->tx_mask, tdm_data->rx_mask,
+				tdm_data->slot_width,
+				tdm_data->mclk_fs);
+		}
+		/* Parse codecs' tdm slots configurations */
+		for (j = 0; j < link->num_codecs; j++) {
+			/* Single dai platform data */
+			struct asoc_configfs_dai_data *dai_pdata =
+				&dl_pdata->codecs[j];
+			/* Runtime tdm data for single dai */
+			struct configfs_sc_tdm_data *tdm_data =
+				&codecs_tdm_data[j];
+
+			tdm_data->tx_mask = dai_pdata->tx_mask;
+			tdm_data->rx_mask = dai_pdata->rx_mask;
+			tdm_data->slot_width = dai_pdata->slot_width;
+			tdm_data->mclk_fs = dai_pdata->mclk_fs;
+			dev_dbg(&pdev->dev, "dai link %d, codec %d, tx_mask = 0x%08x, rx_mask = 0x%08x, slot_width = %u, mclk_fs = %d\n", i, j,
+				tdm_data->tx_mask, tdm_data->rx_mask,
+				tdm_data->slot_width, tdm_data->mclk_fs);
 		}
 	}
-
-	link->num_platforms = 1;
-	link->platforms = devm_kzalloc(&pdev->dev,
-				       sizeof(link->platforms[0]) *
-				       link->num_platforms,
-				       GFP_KERNEL);
-	if (!link->platforms)
-		return -ENOMEM;
-	card->dai_link = link;
-	card->num_links = 1;
+	card->dai_link = priv->dai_link;
+	card->num_links = pdata->ndai_links;
 	card->dev = &pdev->dev;
-
-	priv->mclk_fs = configfs_data->cpus[0].mclk_fs;
-
-	link->ops = &configfs_sc_card_ops;
-
-	priv->cpus_tdm_data = devm_kzalloc(&pdev->dev,
-					   sizeof(priv->cpus_tdm_data[0]) *
-					   link->num_codecs + link->num_cpus,
-					   GFP_KERNEL);
-	if (!priv->cpus_tdm_data)
-		return -ENOMEM;
-	priv->codecs_tdm_data = &priv->cpus_tdm_data[link->num_cpus];
-	/* Parse cpu tdm slots configuration */
-	for (i = 0; i < configfs_data->ncpus; i++) {
-		tdata = &priv->cpus_tdm_data[i];
-		tdata->tx_mask = configfs_data->cpus[i].tx_mask;
-		tdata->rx_mask = configfs_data->cpus[i].rx_mask;
-		tdata->total_slots = configfs_data->total_slots;
-		tdata->slot_width = configfs_data->cpus[i].slot_width;
-	}
-	/* Parse codecs' tdm slots configurations */
-	for (i = 0; i < configfs_data->ncodecs; i++) {
-		tdata = &priv->codecs_tdm_data[i];
-		tdata->tx_mask = configfs_data->codecs[i].tx_mask;
-		tdata->rx_mask = configfs_data->codecs[i].rx_mask;
-		tdata->total_slots = configfs_data->total_slots;
-		tdata->slot_width = configfs_data->codecs[i].slot_width;
-	}
-
-	link->platforms->name = link->cpus->name;
-	link->platforms->of_node = link->cpus->of_node;
 
 	snd_soc_card_set_drvdata(card, priv);
 
