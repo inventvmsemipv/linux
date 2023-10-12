@@ -120,48 +120,60 @@ static const struct snd_soc_ops configfs_sc_card_ops = {
 static int configfs_sc_late_probe(struct snd_soc_card *card)
 {
 	struct snd_soc_pcm_runtime *rtd;
-	struct configfs_sc_priv *priv;
-	struct configfs_sc_tdm_data *tdata;
+	struct asoc_configfs_soundcard *pdata;
 	struct snd_soc_dai_link *dai_link;
 	int i, j, ret;
 
 	dev_dbg(card->dev, "%s entered\n", __func__);
-	priv = snd_soc_card_get_drvdata(card);
+
+	pdata = dev_get_platdata(card->dev);
+	if (!pdata) {
+		dev_err(card->dev, "no platform data\n");
+		return -EINVAL;
+	}
 
 	for_each_card_prelinks(card, j, dai_link) {
 		struct snd_soc_dai *cpu_dai, *codec_dai;
-		struct configfs_sc_dai_link_data *dl_data =
-			&priv->dai_link_data[j];
+		/* Single dai link platform data */
+		struct asoc_configfs_dai_link_data *dl_pdata =
+			&pdata->dai_links[j];
 
 		rtd = snd_soc_get_pcm_runtime(card, dai_link);
 		for_each_rtd_cpu_dais(rtd, i, cpu_dai) {
+			/* Single dai platform data */
+			struct asoc_configfs_dai_data *dai_pdata =
+				&dl_pdata->cpus[i];
+
 			ret = snd_soc_dai_set_sysclk(cpu_dai, 0,
 						     24576000/2,
 						     SND_SOC_CLOCK_IN);
 			if (ret < 0)
 				return ret;
 
-			tdata = &dl_data->cpus_tdm_data[i];
-			dev_dbg(rtd->card->dev, "dai link %d, cpu %d, tx_mask = 0x%08x, rx_mask = 0x%08x, total_slots = %ld, slot_width = %u\n", j, i,
-				tdata->tx_mask, tdata->rx_mask,
-				dl_data->total_slots, tdata->slot_width);
-			ret = snd_soc_dai_set_tdm_slot(cpu_dai, tdata->tx_mask,
-						       tdata->rx_mask,
-						       dl_data->total_slots,
-						       tdata->slot_width);
+			dev_dbg(rtd->card->dev, "dai link %d, cpu %d, tx_mask = 0x%08lx, rx_mask = 0x%08lx, total_slots = %ld, slot_width = %lu\n", j, i,
+				dai_pdata->tx_mask, dai_pdata->rx_mask,
+				dl_pdata->total_slots, dai_pdata->slot_width);
+			ret = snd_soc_dai_set_tdm_slot(cpu_dai,
+						       dai_pdata->tx_mask,
+						       dai_pdata->rx_mask,
+						       dl_pdata->total_slots,
+						       dai_pdata->slot_width);
 			if (ret < 0 && ret != -ENOTSUPP)
 				return ret;
 		}
 		for_each_rtd_codec_dais(rtd, i, codec_dai) {
-			tdata = &dl_data->codecs_tdm_data[i];
-			dev_dbg(rtd->card->dev, "dai link %d, codec %d, tx_mask = 0x%08x, rx_mask = 0x%08x, total_slots = %ld, slot_width = %u\n", j, i,
-				tdata->tx_mask, tdata->rx_mask,
-				dl_data->total_slots, tdata->slot_width);
+			/* Single dai platform data */
+			struct asoc_configfs_dai_data *dai_pdata =
+				&dl_pdata->codecs[i];
+
+			dev_dbg(rtd->card->dev, "dai link %d, codec %d, tx_mask = 0x%08lx, rx_mask = 0x%08lx, total_slots = %ld, slot_width = %lu\n", j, i,
+				dai_pdata->tx_mask, dai_pdata->rx_mask,
+				dl_pdata->total_slots, dai_pdata->slot_width);
 			ret = snd_soc_dai_set_tdm_slot(codec_dai,
-						       tdata->tx_mask,
-						       tdata->rx_mask,
-						       dl_data->total_slots,
-						       tdata->slot_width);
+						       dai_pdata->tx_mask,
+						       dai_pdata->rx_mask,
+						       dl_pdata->total_slots,
+						       dai_pdata->slot_width);
 			if (ret < 0 && ret != -ENOTSUPP)
 				return ret;
 		}
