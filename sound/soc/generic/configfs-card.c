@@ -350,33 +350,6 @@ static void fixup_total_slots(struct asoc_configfs_dai_link_data *dld)
 	pr_debug("%s calculated %lu slots\n", __func__, dld->total_slots);
 }
 
-static ssize_t asoc_card_dai_link_command_store(struct config_item *item,
-						const char *page, size_t len)
-{
-	struct asoc_configfs_soundcard *sc =
-		to_asoc_configfs_soundcard(to_config_group(item));
-	struct asoc_configfs_dai_link_data *dld =
-		&sc->dai_links[sc->ndai_links - 1];
-	struct platform_device *pdev;
-
-	if (strncmp(page, "start", 5)) {
-		pr_err("say start to register and start up the board\n");
-		return -EINVAL;
-	}
-	fixup_total_slots(dld);
-	pdev = platform_device_register_resndata(NULL, "configfssc",
-						 atomic_inc_return(&asoc_sc_instance),
-						 NULL, 0,
-						 sc, sizeof(*sc));
-	if (IS_ERR(pdev)) {
-		pr_err("configfs-card: error registering platform device\n");
-		return PTR_ERR(pdev);
-	}
-	sc->pdev = pdev;
-	dev_info(&pdev->dev, "registered (asoc configfs board %s)\n", sc->name);
-	return len;
-}
-
 static ssize_t asoc_card_dai_link_total_slots_store(struct config_item *item,
 						    const char *page,
 						    size_t len)
@@ -395,7 +368,6 @@ CONFIGFS_ATTR_WO(asoc_card_dai_link_, invert_fsyn);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, invert_bclk);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, bitclock_master);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, frameclock_master);
-CONFIGFS_ATTR_WO(asoc_card_dai_link_, command);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, total_slots);
 
 static struct configfs_attribute *soundcard_dai_link_attrs[] = {
@@ -404,7 +376,6 @@ static struct configfs_attribute *soundcard_dai_link_attrs[] = {
 	&asoc_card_dai_link_attr_invert_bclk,
 	&asoc_card_dai_link_attr_bitclock_master,
 	&asoc_card_dai_link_attr_frameclock_master,
-	&asoc_card_dai_link_attr_command,
 	&asoc_card_dai_link_attr_total_slots,
 	NULL,
 };
@@ -466,6 +437,43 @@ single_soundcard_type_make_group(struct config_group *group, const char *name)
 	return out;
 }
 
+static ssize_t single_soundcard_command_store(struct config_item *item,
+					      const char *page, size_t len)
+{
+	struct asoc_configfs_soundcard *sc =
+		to_asoc_configfs_soundcard(to_config_group(item));
+	struct asoc_configfs_dai_link_data *dld;
+	struct platform_device *pdev;
+	int i;
+
+	if (strncmp(page, "start", 5)) {
+		pr_err("say start to register and start up the board\n");
+		return -EINVAL;
+	}
+	for (i = 0; i < sc->ndai_links; i++) {
+		dld = &sc->dai_links[i];
+		fixup_total_slots(dld);
+	}
+	pdev = platform_device_register_resndata(NULL, "configfssc",
+						 atomic_inc_return(&asoc_sc_instance),
+						 NULL, 0,
+						 sc, sizeof(*sc));
+	if (IS_ERR(pdev)) {
+		pr_err("configfs-card: error registering platform device\n");
+		return PTR_ERR(pdev);
+	}
+	sc->pdev = pdev;
+	dev_info(&pdev->dev, "registered (asoc configfs board %s)\n", sc->name);
+	return len;
+}
+
+CONFIGFS_ATTR_WO(single_soundcard_, command);
+
+static struct configfs_attribute *single_soundcard_attrs[] = {
+	&single_soundcard_attr_command,
+	NULL,
+};
+
 static
 struct configfs_item_operations single_soundcard_type_item_ops = {
 	.release = single_soundcard_type_item_release,
@@ -479,6 +487,7 @@ struct configfs_group_operations single_soundcard_type_group_ops = {
 static const struct config_item_type single_soundcard_type = {
 	.ct_item_ops = &single_soundcard_type_item_ops,
 	.ct_group_ops = &single_soundcard_type_group_ops,
+	.ct_attrs = single_soundcard_attrs,
 	.ct_owner = THIS_MODULE,
 };
 
