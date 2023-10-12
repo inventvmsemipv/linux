@@ -183,7 +183,8 @@ static struct config_group *_make_codec_dai_data(struct config_group *group,
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(group);
-	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
+	struct asoc_configfs_dai_link_data *dld =
+		&sc->dai_links[sc->ndai_links - 1];
 	struct asoc_configfs_dai_data *out;
 
 	if (dld->ncodecs >= MAX_CODECS) {
@@ -204,7 +205,8 @@ static struct config_group *_make_cpu_dai_data(struct config_group *group,
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(group);
-	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
+	struct asoc_configfs_dai_link_data *dld =
+		&sc->dai_links[sc->ndai_links - 1];
 	struct asoc_configfs_dai_data *out;
 
 	if (dld->ncpus >= MAX_CPUS) {
@@ -247,7 +249,8 @@ static ssize_t asoc_card_dai_link_format_store(struct config_item *item,
 	int i;
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
-	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
+	struct asoc_configfs_dai_link_data *dld =
+		&sc->dai_links[sc->ndai_links - 1];
 
 	sc->ndai_links = 1;
 
@@ -268,7 +271,8 @@ static ssize_t asoc_card_dai_link_invert_fsyn_store(struct config_item *item,
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
-	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
+	struct asoc_configfs_dai_link_data *dld =
+		&sc->dai_links[sc->ndai_links - 1];
 	int ret;
 
 	pr_debug("%s: written %s\n", __func__, page);
@@ -282,7 +286,8 @@ static ssize_t asoc_card_dai_link_invert_bclk_store(struct config_item *item,
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
-	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
+	struct asoc_configfs_dai_link_data *dld =
+		&sc->dai_links[sc->ndai_links - 1];
 	int ret;
 
 	pr_debug("%s: written %s\n", __func__, page);
@@ -307,7 +312,8 @@ asoc_card_dai_link_bitclock_master_store(struct config_item *item,
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
-	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
+	struct asoc_configfs_dai_link_data *dld =
+		&sc->dai_links[sc->ndai_links - 1];
 
 	pr_debug("%s: written %s\n", __func__, page);
 	return _set_bitclock_master(page, len, &dld->cpu_bitclock_master);
@@ -319,7 +325,8 @@ asoc_card_dai_link_frameclock_master_store(struct config_item *item,
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
-	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
+	struct asoc_configfs_dai_link_data *dld =
+		&sc->dai_links[sc->ndai_links - 1];
 
 	pr_debug("%s: written %s\n", __func__, page);
 	return _set_bitclock_master(page, len, &dld->cpu_frameclock_master);
@@ -348,7 +355,8 @@ static ssize_t asoc_card_dai_link_command_store(struct config_item *item,
 {
 	struct asoc_configfs_soundcard *sc =
 		to_asoc_configfs_soundcard(to_config_group(item));
-	struct asoc_configfs_dai_link_data *dld = &sc->dai_links[0];
+	struct asoc_configfs_dai_link_data *dld =
+		&sc->dai_links[sc->ndai_links - 1];
 	struct platform_device *pdev;
 
 	if (strncmp(page, "start", 5)) {
@@ -377,7 +385,8 @@ static ssize_t asoc_card_dai_link_total_slots_store(struct config_item *item,
 		to_asoc_configfs_soundcard(to_config_group(item));
 	int ret;
 
-	ret = kstrtoul(page, 10, &sc->dai_links[0].total_slots);
+	ret = kstrtoul(page, 10,
+		       &sc->dai_links[sc->ndai_links - 1].total_slots);
 	return ret < 0 ? ret : len;
 }
 
