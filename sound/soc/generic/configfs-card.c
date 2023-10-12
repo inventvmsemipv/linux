@@ -221,7 +221,8 @@ static struct config_group *_make_cpu_dai_data(struct config_group *group,
 }
 
 static struct config_group *
-single_soundcard_type_make_group(struct config_group *group, const char *name)
+single_soundcard_dai_link_type_make_group(struct config_group *group,
+					  const char *name)
 {
 	if (!strncmp(name, "codec", 5))
 		return _make_codec_dai_data(group, name);
@@ -399,7 +400,8 @@ static struct configfs_attribute *soundcard_dai_link_attrs[] = {
 	NULL,
 };
 
-static void single_soundcard_type_item_release(struct config_item *item)
+static
+void single_soundcard_dai_link_type_item_release(struct config_item *item)
 {
 	struct config_group *gr = to_config_group(item);
 	struct asoc_configfs_soundcard *sc = to_asoc_configfs_soundcard(gr);
@@ -411,17 +413,19 @@ static void single_soundcard_type_item_release(struct config_item *item)
 	kfree(sc);
 }
 
-static struct configfs_item_operations single_soundcard_type_item_ops = {
-	.release = single_soundcard_type_item_release,
+static
+struct configfs_item_operations single_soundcard_dai_link_type_item_ops = {
+	.release = single_soundcard_dai_link_type_item_release,
 };
 
-static struct configfs_group_operations single_soundcard_type_group_ops = {
-	.make_group = single_soundcard_type_make_group,
+static
+struct configfs_group_operations single_soundcard_dai_link_type_group_ops = {
+	.make_group = single_soundcard_dai_link_type_make_group,
 };
 
-static const struct config_item_type single_soundcard_type = {
-	.ct_item_ops = &single_soundcard_type_item_ops,
-	.ct_group_ops = &single_soundcard_type_group_ops,
+static const struct config_item_type single_soundcard_dai_link_type = {
+	.ct_item_ops = &single_soundcard_dai_link_type_item_ops,
+	.ct_group_ops = &single_soundcard_dai_link_type_group_ops,
 	.ct_attrs = soundcard_dai_link_attrs,
 	.ct_owner = THIS_MODULE,
 };
@@ -440,7 +444,8 @@ asoc_soundcard_make_group(struct config_group *group, const char *name)
 	out->ndai_links = 1;
 	dld->name = "configurable-link";
 	dld->stream_name = "configurable-link-stream";
-	config_group_init_type_name(&out->group, name, &single_soundcard_type);
+	config_group_init_type_name(&out->group, name,
+				    &single_soundcard_dai_link_type);
 	return &out->group;
 }
 
