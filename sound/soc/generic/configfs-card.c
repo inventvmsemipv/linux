@@ -412,14 +412,7 @@ static struct configfs_attribute *soundcard_dai_link_attrs[] = {
 static
 void single_soundcard_dai_link_type_item_release(struct config_item *item)
 {
-	struct config_group *gr = to_config_group(item);
-	struct asoc_configfs_soundcard *sc = to_asoc_configfs_soundcard(gr);
-
-	pr_err("%s invoked, item = %p, group = %p, sc = %p\n", __func__, item,
-	       gr, sc);
-	platform_device_unregister(sc->pdev);
-	kfree(sc->name);
-	kfree(sc);
+	pr_debug("%s invoked, item = %p\n", __func__, item);
 }
 
 static
@@ -439,22 +432,67 @@ static const struct config_item_type single_soundcard_dai_link_type = {
 	.ct_owner = THIS_MODULE,
 };
 
+static
+void single_soundcard_type_item_release(struct config_item *item)
+{
+	struct config_group *gr = to_config_group(item);
+	struct asoc_configfs_soundcard *sc = to_asoc_configfs_soundcard(gr);
+
+	pr_err("%s invoked, item = %p, group = %p, sc = %p\n", __func__, item,
+	       gr, sc);
+	platform_device_unregister(sc->pdev);
+	kfree(sc->name);
+	kfree(sc);
+}
+
+static struct config_group *
+single_soundcard_type_make_group(struct config_group *group, const char *name)
+{
+	/* name is a dai link name, create a dai link here */
+	struct asoc_configfs_soundcard *sc = to_asoc_configfs_soundcard(group);
+	struct asoc_configfs_dai_link_data *dld;
+	struct config_group *out;
+
+	pr_debug("%s invoked, name = %s\n", __func__, name);
+	if (sc->ndai_links >= MAX_DAI_LINKS) {
+		pr_err("%s: too many dai links\n", __func__);
+		return ERR_PTR(-ENOMEM);
+	}
+	dld = &sc->dai_links[sc->ndai_links++];
+	out = &dld->group;
+	dld->name = kstrndup(name, 32, GFP_KERNEL);
+	dld->stream_name = name;
+	config_group_init_type_name(out, name, &single_soundcard_dai_link_type);
+	return out;
+}
+
+static
+struct configfs_item_operations single_soundcard_type_item_ops = {
+	.release = single_soundcard_type_item_release,
+};
+
+static
+struct configfs_group_operations single_soundcard_type_group_ops = {
+	.make_group = single_soundcard_type_make_group,
+};
+
+static const struct config_item_type single_soundcard_type = {
+	.ct_item_ops = &single_soundcard_type_item_ops,
+	.ct_group_ops = &single_soundcard_type_group_ops,
+	.ct_owner = THIS_MODULE,
+};
+
 static struct config_group *
 asoc_soundcard_make_group(struct config_group *group, const char *name)
 {
 	struct asoc_configfs_soundcard *out = kzalloc(sizeof(*out), GFP_KERNEL);
-	struct asoc_configfs_dai_link_data *dld;
 
 	pr_err("%s: allocated soundcard %p (%s)\n", __func__, out, name);
 	if (!out)
 		return ERR_PTR(-ENOMEM);
-	dld = &out->dai_links[0];
 	out->name = kstrndup(name, 32, GFP_KERNEL);
-	out->ndai_links = 1;
-	dld->name = "configurable-link";
-	dld->stream_name = "configurable-link-stream";
 	config_group_init_type_name(&out->group, name,
-				    &single_soundcard_dai_link_type);
+				    &single_soundcard_type);
 	return &out->group;
 }
 

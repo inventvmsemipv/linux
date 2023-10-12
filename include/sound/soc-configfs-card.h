@@ -41,6 +41,7 @@ struct asoc_configfs_dai_link_data {
 	struct asoc_configfs_dai_data cpus[MAX_CPUS];
 	int ncodecs;
 	struct asoc_configfs_dai_data codecs[MAX_CODECS];
+	struct config_group group;
 };
 
 struct asoc_configfs_soundcard {
