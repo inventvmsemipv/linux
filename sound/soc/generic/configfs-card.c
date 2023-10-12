@@ -352,12 +352,55 @@ static ssize_t asoc_card_dai_link_total_slots_store(struct config_item *item,
 	return ret < 0 ? ret : len;
 }
 
+static ssize_t _something_only_store(struct config_item *item,
+				     const char *page,
+				     size_t len, int playback)
+{
+	struct asoc_configfs_dai_link_data *dl_data =
+		to_asoc_configfs_dai_link_data(to_config_group(item));
+	int ret = -EINVAL;
+	int *what = playback ? &dl_data->playback_only : &dl_data->capture_only;
+
+	if ((playback && dl_data->capture_only) ||
+	    (!playback && dl_data->playback_only)) {
+		pr_err("dai link is %s only already\n",
+		       playback ? "capture" : "playback");
+		return ret;
+	}
+	switch (page[0]) {
+	case '0':
+	case '1':
+		*what = page[0] - '0';
+		ret = len;
+		break;
+	default:
+		pr_err("invalid data\n");
+	}
+	return ret;
+}
+
+static ssize_t asoc_card_dai_link_capture_only_store(struct config_item *item,
+						     const char *page,
+						     size_t len)
+{
+	return _something_only_store(item, page, len, 0);
+}
+
+static ssize_t asoc_card_dai_link_playback_only_store(struct config_item *item,
+						      const char *page,
+						      size_t len)
+{
+	return _something_only_store(item, page, len, 1);
+}
+
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, format);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, invert_fsyn);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, invert_bclk);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, bitclock_master);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, frameclock_master);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, total_slots);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, capture_only);
+CONFIGFS_ATTR_WO(asoc_card_dai_link_, playback_only);
 
 static struct configfs_attribute *soundcard_dai_link_attrs[] = {
 	&asoc_card_dai_link_attr_format,
@@ -366,6 +409,8 @@ static struct configfs_attribute *soundcard_dai_link_attrs[] = {
 	&asoc_card_dai_link_attr_bitclock_master,
 	&asoc_card_dai_link_attr_frameclock_master,
 	&asoc_card_dai_link_attr_total_slots,
+	&asoc_card_dai_link_attr_capture_only,
+	&asoc_card_dai_link_attr_playback_only,
 	NULL,
 };
 

@@ -35,6 +35,8 @@ struct asoc_configfs_dai_link_data {
 	unsigned long invert_bclk;
 	int cpu_bitclock_master;
 	int cpu_frameclock_master;
+	int capture_only;
+	int playback_only;
 	int ncpus;
 	/* Total number of slots for TDM */
 	unsigned long total_slots;

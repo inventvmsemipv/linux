@@ -192,6 +192,11 @@ static int add_dai_link(struct platform_device *pdev,
 	if (!dl_pdata->invert_fsyn && dl_pdata->invert_bclk)
 		link->dai_fmt |= SND_SOC_DAIFMT_IB_NF;
 
+	if (dl_pdata->playback_only)
+		link->playback_only = 1;
+	if (dl_pdata->capture_only)
+		link->capture_only = 1;
+
 	link->name = dl_pdata->name;
 	link->stream_name = dl_pdata->stream_name;
 
