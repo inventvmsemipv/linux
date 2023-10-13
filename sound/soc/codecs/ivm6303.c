@@ -832,6 +832,18 @@ static const struct snd_soc_dapm_route ivm6303_dapm_routes[] = {
 	{"AIF CH3-4 TDM OUT", NULL, "VSIS-ADC"},
 };
 
+#define REV_BASE 0xf9
+
+#define REV_OFFSET(r) ((r) - REV_BASE)
+
+static const struct ivm6303_quirks quirks[] = {
+	[REV_OFFSET(0xf9)] = { .needs_autocal = 1, },
+	[REV_OFFSET(0xfa)] = { .needs_autocal = 1, },
+	[REV_OFFSET(0xfc)] = { .needs_autocal = 0, },
+};
+
+#define QUIRKS(a) &quirks[REV_OFFSET(a)]
+
 static int check_hw_rev(struct snd_soc_component *component)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
@@ -847,6 +859,9 @@ static int check_hw_rev(struct snd_soc_component *component)
 	case 0xfa:
 	case 0xfc:
 		priv->hw_rev = rev;
+		priv->quirks = QUIRKS(rev);
+		dev_dbg(component->dev, "needs_autocal = %d\n",
+			priv->quirks->needs_autocal);
 		break;
 	default:
 		dev_err(component->dev, "ivm6303, unknown hw rev");

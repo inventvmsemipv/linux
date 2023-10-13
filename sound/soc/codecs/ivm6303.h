@@ -57,6 +57,10 @@ enum ivm6303_clk_status {
 	RUNNING,
 };
 
+struct ivm6303_quirks {
+	int needs_autocal;
+};
+
 struct ivm6303_priv {
 	struct workqueue_struct	*wq;
 	struct delayed_work	pll_locked_work;
@@ -67,6 +71,7 @@ struct ivm6303_priv {
 	struct i2c_client	*i2c_client;
 	struct regmap		*regmap;
 	const struct firmware	*fw;
+	const struct ivm6303_quirks *quirks;
 	u8			hw_rev;
 	struct mutex		regmap_mutex;
 	/* Total number of stream slots */
