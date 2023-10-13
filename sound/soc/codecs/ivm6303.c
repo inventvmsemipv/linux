@@ -1469,6 +1469,12 @@ static void _pll_locked_handler(struct ivm6303_priv *priv)
 				return;
 			}
 			break;
+		case STOPPED:
+			/*
+			 * We got a stop while waiting for pll locked
+			 * Just avoid rescheduling another poll
+			 */
+			return;
 		default:
 			dev_err(dev, "%s: unexpected clock state %d",
 				__func__, olds);
