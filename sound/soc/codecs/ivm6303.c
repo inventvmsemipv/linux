@@ -844,6 +844,11 @@ static const struct ivm6303_quirks quirks[] = {
 
 #define QUIRKS(a) &quirks[REV_OFFSET(a)]
 
+static inline int needs_autocal(struct ivm6303_priv *priv)
+{
+	return priv->quirks->needs_autocal;
+}
+
 static int check_hw_rev(struct snd_soc_component *component)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
@@ -1396,7 +1401,7 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 	if (stat < 0)
 		pr_err("Error restoring 0x112 to 0\n");
 	/* Do autocal if needed */
-	if (en && !priv->autocal_done) {
+	if (en && needs_autocal(priv) && !priv->autocal_done) {
 		stat = _do_autocal(priv);
 		if (!stat)
 			priv->autocal_done = 1;
