@@ -1398,7 +1398,7 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 				 leave_intfb_vals,
 				 ARRAY_SIZE(leave_intfb_vals));
 	if (stat < 0)
-		pr_err("Error leaving internal feedback\n");
+		pr_err("Error %d leaving internal feedback\n", stat);
 	if (en) {
 		_do_mute(priv, priv->muted);
 		set_bit(SPEAKER_ENABLED, &priv->flags);
