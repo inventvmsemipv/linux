@@ -735,13 +735,13 @@ static int stm32_sai_set_dai_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 	}
 
 	/* Set slave mode if sub-block is synchronized with another SAI */
-	if (sai->sync) {
-		dev_dbg(cpu_dai->dev, "Synchronized SAI configured as slave\n");
+	if (sai->sync && !sai->master)
 		cr1 |= SAI_XCR1_SLAVE;
-		sai->master = false;
-	}
 
 	cr1_mask |= SAI_XCR1_SLAVE;
+
+	dev_dbg(cpu_dai->dev, "Synchronized SAI configured as %s\n",
+		cr1 & SAI_XCR1_SLAVE ? "slave" : "master");
 
 conf_update:
 	ret = stm32_sai_sub_reg_up(sai, STM_SAI_CR1_REGX, cr1_mask, cr1);
