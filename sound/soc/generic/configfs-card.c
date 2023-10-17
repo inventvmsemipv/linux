@@ -143,6 +143,30 @@ static ssize_t asoc_card_dai_data_mclk_fs_store(struct config_item *item,
 	return ret < 0 ? ret : len;
 }
 
+static ssize_t
+asoc_card_dai_data_bitclock_master_store(struct config_item *item,
+					 const char *page, size_t len)
+{
+	struct asoc_configfs_dai_data *dd =
+		to_asoc_configfs_dai_data(to_config_group(item));
+	int ret;
+
+	ret = kstrtoul(page, 16, &dd->bitclock_master);
+	return ret < 0 ? ret : len;
+}
+
+static ssize_t
+asoc_card_dai_data_frameclock_master_store(struct config_item *item,
+					   const char *page, size_t len)
+{
+	struct asoc_configfs_dai_data *dd =
+		to_asoc_configfs_dai_data(to_config_group(item));
+	int ret;
+
+	ret = kstrtoul(page, 16, &dd->frameclock_master);
+	return ret < 0 ? ret : len;
+}
+
 
 CONFIGFS_ATTR_WO(asoc_card_dai_data_, comp_bustype);
 CONFIGFS_ATTR_WO(asoc_card_dai_data_, comp_devname);
@@ -151,6 +175,8 @@ CONFIGFS_ATTR_WO(asoc_card_dai_data_, slot_width);
 CONFIGFS_ATTR_WO(asoc_card_dai_data_, rx_mask);
 CONFIGFS_ATTR_WO(asoc_card_dai_data_, tx_mask);
 CONFIGFS_ATTR_WO(asoc_card_dai_data_, mclk_fs);
+CONFIGFS_ATTR_WO(asoc_card_dai_data_, bitclock_master);
+CONFIGFS_ATTR_WO(asoc_card_dai_data_, frameclock_master);
 
 static struct configfs_attribute *asoc_card_dai_data_attrs[] = {
 	&asoc_card_dai_data_attr_comp_bustype,
@@ -160,6 +186,8 @@ static struct configfs_attribute *asoc_card_dai_data_attrs[] = {
 	&asoc_card_dai_data_attr_rx_mask,
 	&asoc_card_dai_data_attr_tx_mask,
 	&asoc_card_dai_data_attr_mclk_fs,
+	&asoc_card_dai_data_attr_bitclock_master,
+	&asoc_card_dai_data_attr_frameclock_master,
 	NULL,
 };
 
@@ -289,39 +317,6 @@ static ssize_t asoc_card_dai_link_invert_bclk_store(struct config_item *item,
 	return ret < 0 ? ret : len;
 }
 
-static ssize_t _set_bitclock_master(const char *page, size_t len,
-				    int *what)
-{
-	*what = !strncmp(page, "cpu", 3) ? 1 : 0;
-	if (*what)
-		return len;
-	if (strncmp(page, "codec", 5))
-		return -EINVAL;
-	return len;
-}
-
-static ssize_t
-asoc_card_dai_link_bitclock_master_store(struct config_item *item,
-					 const char *page, size_t len)
-{
-	struct asoc_configfs_dai_link_data *dl_data =
-		to_asoc_configfs_dai_link_data(to_config_group(item));
-
-	pr_debug("%s: written %s\n", __func__, page);
-	return _set_bitclock_master(page, len, &dl_data->cpu_bitclock_master);
-}
-
-static ssize_t
-asoc_card_dai_link_frameclock_master_store(struct config_item *item,
-					   const char *page, size_t len)
-{
-	struct asoc_configfs_dai_link_data *dl_data =
-		to_asoc_configfs_dai_link_data(to_config_group(item));
-
-	pr_debug("%s: written %s\n", __func__, page);
-	return _set_bitclock_master(page, len, &dl_data->cpu_frameclock_master);
-}
-
 static void fixup_total_slots(struct asoc_configfs_dai_link_data *dld)
 {
 	int i;
@@ -396,8 +391,6 @@ static ssize_t asoc_card_dai_link_playback_only_store(struct config_item *item,
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, format);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, invert_fsyn);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, invert_bclk);
-CONFIGFS_ATTR_WO(asoc_card_dai_link_, bitclock_master);
-CONFIGFS_ATTR_WO(asoc_card_dai_link_, frameclock_master);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, total_slots);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, capture_only);
 CONFIGFS_ATTR_WO(asoc_card_dai_link_, playback_only);
@@ -406,8 +399,6 @@ static struct configfs_attribute *soundcard_dai_link_attrs[] = {
 	&asoc_card_dai_link_attr_format,
 	&asoc_card_dai_link_attr_invert_fsyn,
 	&asoc_card_dai_link_attr_invert_bclk,
-	&asoc_card_dai_link_attr_bitclock_master,
-	&asoc_card_dai_link_attr_frameclock_master,
 	&asoc_card_dai_link_attr_total_slots,
 	&asoc_card_dai_link_attr_capture_only,
 	&asoc_card_dai_link_attr_playback_only,

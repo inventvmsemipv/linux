@@ -24,6 +24,8 @@ struct asoc_configfs_dai_data {
 	unsigned long rx_mask;
 	unsigned long tx_mask;
 	unsigned long mclk_fs;
+	unsigned long bitclock_master;
+	unsigned long frameclock_master;
 	struct config_group group;
 };
 
@@ -33,8 +35,6 @@ struct asoc_configfs_dai_link_data {
 	int format;
 	unsigned long invert_fsyn;
 	unsigned long invert_bclk;
-	int cpu_bitclock_master;
-	int cpu_frameclock_master;
 	int capture_only;
 	int playback_only;
 	int ncpus;

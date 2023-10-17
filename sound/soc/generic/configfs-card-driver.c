@@ -29,55 +29,70 @@ static void setup_name_ofnode(struct snd_soc_dai_link_component *dlc,
 	dlc->of_node = of_node_get(dev->of_node);
 }
 
+static int _set_daifmt(struct snd_soc_dai_link *dai_link,
+		       struct snd_soc_dai *dai,
+		       struct asoc_configfs_dai_data *dd)
+{
+	unsigned int fmt = dai_link->dai_fmt &
+		~SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK;
+
+	if (!dd->bitclock_master && !dd->frameclock_master)
+		fmt |= SND_SOC_DAIFMT_BC_FC;
+	else if (!dd->bitclock_master && dd->frameclock_master)
+		fmt |= SND_SOC_DAIFMT_BC_FP;
+	else if (dd->bitclock_master && !dd->frameclock_master)
+		fmt |= SND_SOC_DAIFMT_BP_FC;
+	else
+		fmt |= SND_SOC_DAIFMT_BP_FP;
+
+	return snd_soc_dai_set_fmt(dai, fmt);
+}
+
 static int configfs_sc_hw_params(struct snd_pcm_substream *substream,
 				 struct snd_pcm_hw_params *params)
 {
 	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
+	struct snd_soc_card *card;
+	struct asoc_configfs_soundcard *pdata;
+	struct asoc_configfs_dai_link_data *dl_data;
 	struct snd_soc_dai *codec_dai, *cpu_dai;
-	unsigned int cpu_fmt, codec_fmt;
-	int i;
+	int i, dai_link_index, stat;
 
-	dev_dbg(rtd->card->dev, "%s entered\n", __func__);
+	card = rtd->card;
+	pdata = dev_get_platdata(card->dev);
 
-	cpu_fmt = codec_fmt = rtd->card->dai_link->dai_fmt &
-		~SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK;
-
-	switch (rtd->card->dai_link->dai_fmt &
-		SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
-	case SND_SOC_DAIFMT_CBM_CFM:
-		/* Codec is bitclock and frameclock master */
-		codec_fmt |= SND_SOC_DAIFMT_BP_FP;
-		/* Cpu is bitclock and frameclock slave */
-		cpu_fmt |= SND_SOC_DAIFMT_BC_FC;
-		break;
-	case SND_SOC_DAIFMT_CBS_CFM:
-		/* Codec is bitclock slave and frameclock master */
-		codec_fmt |= SND_SOC_DAIFMT_BC_FP;
-		/* Cpu is bitclock master and frameclock slave */
-		cpu_fmt |= SND_SOC_DAIFMT_BP_FC;
-		break;
-	case SND_SOC_DAIFMT_CBM_CFS:
-		/* Codec is bitclock master and frameclock slave */
-		codec_fmt |= SND_SOC_DAIFMT_BP_FC;
-		/* Cpu is bitclock slave and frameclock master */
-		cpu_fmt |= SND_SOC_DAIFMT_BC_FP;
-		break;
-	case SND_SOC_DAIFMT_CBS_CFS:
-		/* Codec is bitclock slave and frameclock slave */
-		codec_fmt |= SND_SOC_DAIFMT_BC_FC;
-		/* Cpu is bitclock master and frameclock master */
-		cpu_fmt |= SND_SOC_DAIFMT_BP_FP;
-		break;
-	default:
-		dev_err(rtd->card->dev, "Unsupported frame/bitclock master/slave combination\n");
+	if (!pdata) {
+		/* This should never happen */
+		dev_err(card->dev, "%s: no platform data\n", __func__);
 		return -EINVAL;
 	}
 
-	for_each_rtd_cpu_dais(rtd, i, cpu_dai)
-		snd_soc_dai_set_fmt(cpu_dai, cpu_fmt);
+	dev_dbg(card->dev, "%s entered\n", __func__);
 
-	for_each_rtd_codec_dais(rtd, i, codec_dai)
-		snd_soc_dai_set_fmt(codec_dai, codec_fmt);
+	dai_link_index = rtd->dai_link - card->dai_link;
+
+	if (dai_link_index < 0 || dai_link_index >= pdata->ndai_links) {
+		dev_err(card->dev, "%s, invalid dai link index %d\n",
+			__func__, dai_link_index);
+		return -ENODEV;
+	}
+	dl_data = &pdata->dai_links[dai_link_index];
+
+	for_each_rtd_cpu_dais(rtd, i, cpu_dai) {
+		struct asoc_configfs_dai_data *dd = &dl_data->cpus[i];
+
+		stat = _set_daifmt(rtd->dai_link, cpu_dai, dd);
+		if (stat)
+			return stat;
+	}
+
+	for_each_rtd_codec_dais(rtd, i, codec_dai) {
+		struct asoc_configfs_dai_data *dd = &dl_data->codecs[i];
+
+		stat = _set_daifmt(rtd->dai_link, codec_dai, dd);
+		if (stat)
+			return stat;
+	}
 
 	return 0;
 }
@@ -175,23 +190,17 @@ static int add_dai_link(struct platform_device *pdev,
 	int i;
 
 	link->dai_fmt = dl_pdata->format | SND_SOC_DAIFMT_NB_NF;
-	if (!dl_pdata->cpu_bitclock_master && !dl_pdata->cpu_frameclock_master)
-		link->dai_fmt |= SND_SOC_DAIFMT_CBM_CFM;
-	else if (dl_pdata->cpu_bitclock_master &&
-		 !dl_pdata->cpu_frameclock_master)
-		link->dai_fmt |= SND_SOC_DAIFMT_CBS_CFM;
-	else if (!dl_pdata->cpu_bitclock_master &&
-		 dl_pdata->cpu_frameclock_master)
-		link->dai_fmt |= SND_SOC_DAIFMT_CBM_CFS;
-	else
-		link->dai_fmt |= SND_SOC_DAIFMT_CBS_CFS;
 	if (dl_pdata->invert_fsyn && dl_pdata->invert_bclk)
 		link->dai_fmt |= SND_SOC_DAIFMT_IB_IF;
 	if (dl_pdata->invert_fsyn && !dl_pdata->invert_bclk)
 		link->dai_fmt |= SND_SOC_DAIFMT_NB_IF;
 	if (!dl_pdata->invert_fsyn && dl_pdata->invert_bclk)
 		link->dai_fmt |= SND_SOC_DAIFMT_IB_NF;
-
+	/*
+	 * Pretend codec is slave, actual configuration will be done in
+	 * hw_params
+	 */
+	link->dai_fmt |= SND_SOC_DAIFMT_CBS_CFS;
 	if (dl_pdata->playback_only)
 		link->playback_only = 1;
 	if (dl_pdata->capture_only)
