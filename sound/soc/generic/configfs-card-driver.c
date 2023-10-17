@@ -171,8 +171,8 @@ static int configfs_sc_late_probe(struct snd_soc_card *card)
 				dai_pdata->tx_mask, dai_pdata->rx_mask,
 				dl_pdata->total_slots, dai_pdata->slot_width);
 			ret = snd_soc_dai_set_tdm_slot(codec_dai,
-						       dai_pdata->tx_mask,
 						       dai_pdata->rx_mask,
+						       dai_pdata->tx_mask,
 						       dl_pdata->total_slots,
 						       dai_pdata->slot_width);
 			if (ret < 0 && ret != -ENOTSUPP)
