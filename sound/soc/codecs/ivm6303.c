@@ -2502,10 +2502,9 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 		dev_err(component->dev, "Max 1 rx slots supported\n");
 		return -EINVAL;
 	}
-	if (!rx_mask) {
+	priv->capture_only = rx_mask == 0;
+	if (priv->capture_only)
 		dev_info(component->dev, "Configured for capture only\n");
-		priv->capture_only = 1;
-	}
 	switch (slot_width) {
 	case 16:
 		w = 1 << I_SLOT_SIZE_SHIFT;
