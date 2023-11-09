@@ -26,6 +26,8 @@ struct asoc_configfs_dai_data {
 	unsigned long mclk_fs;
 	unsigned long bitclock_master;
 	unsigned long frameclock_master;
+	unsigned long invert_fsyn;
+	unsigned long invert_bclk;
 	struct config_group group;
 };
 
@@ -33,8 +35,6 @@ struct asoc_configfs_dai_link_data {
 	const char *name;
 	const char *stream_name;
 	int format;
-	unsigned long invert_fsyn;
-	unsigned long invert_bclk;
 	int capture_only;
 	int playback_only;
 	int ncpus;

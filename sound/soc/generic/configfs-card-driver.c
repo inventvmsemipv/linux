@@ -34,7 +34,7 @@ static int _set_daifmt(struct snd_soc_dai_link *dai_link,
 		       struct asoc_configfs_dai_data *dd)
 {
 	unsigned int fmt = dai_link->dai_fmt &
-		~SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK;
+		~(SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK | SND_SOC_DAIFMT_INV_MASK);
 
 	if (!dd->bitclock_master && !dd->frameclock_master)
 		fmt |= SND_SOC_DAIFMT_BC_FC;
@@ -44,6 +44,15 @@ static int _set_daifmt(struct snd_soc_dai_link *dai_link,
 		fmt |= SND_SOC_DAIFMT_BP_FC;
 	else
 		fmt |= SND_SOC_DAIFMT_BP_FP;
+
+	if (dd->invert_fsyn && dd->invert_bclk)
+		fmt |= SND_SOC_DAIFMT_IB_IF;
+	if (dd->invert_fsyn && !dd->invert_bclk)
+		fmt |= SND_SOC_DAIFMT_NB_IF;
+	if (!dd->invert_fsyn && dd->invert_bclk)
+		fmt |= SND_SOC_DAIFMT_IB_NF;
+	else
+		fmt |= SND_SOC_DAIFMT_NB_NF;
 
 	return snd_soc_dai_set_fmt(dai, fmt);
 }
@@ -169,13 +178,11 @@ static int add_dai_link(struct platform_device *pdev,
 {
 	int i;
 
+	/*
+	 * Pretend nothing is inverted, actual configuration will be done
+	 * in hw_params
+	 */
 	link->dai_fmt = dl_pdata->format | SND_SOC_DAIFMT_NB_NF;
-	if (dl_pdata->invert_fsyn && dl_pdata->invert_bclk)
-		link->dai_fmt |= SND_SOC_DAIFMT_IB_IF;
-	if (dl_pdata->invert_fsyn && !dl_pdata->invert_bclk)
-		link->dai_fmt |= SND_SOC_DAIFMT_NB_IF;
-	if (!dl_pdata->invert_fsyn && dl_pdata->invert_bclk)
-		link->dai_fmt |= SND_SOC_DAIFMT_IB_NF;
 	/*
 	 * Pretend codec is slave, actual configuration will be done in
 	 * hw_params
