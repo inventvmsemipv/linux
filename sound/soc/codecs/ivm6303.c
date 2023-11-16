@@ -1349,10 +1349,12 @@ static int _do_mute(struct ivm6303_priv *priv, int mute)
 	if (!doit)
 		return 0;
 	if (mute) {
-		ret = regmap_read(priv->regmap, IVM6303_VOLUME,
-				  &priv->saved_volume);
-		if (ret < 0)
-			goto err;
+		if (test_bit(SPEAKER_ENABLED, &priv->flags)) {
+			ret = regmap_read(priv->regmap, IVM6303_VOLUME,
+					  &priv->saved_volume);
+			if (ret < 0)
+				goto err;
+		}
 		ret = regmap_write(priv->regmap, IVM6303_VOLUME, 0);
 	} else
 		ret = regmap_write(priv->regmap, IVM6303_VOLUME,
