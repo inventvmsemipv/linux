@@ -1346,14 +1346,15 @@ static int _do_mute(struct ivm6303_priv *priv, int mute)
 
 	doit = mute != priv->muted ||
 		test_and_clear_bit(DEFERRED_MUTE, &priv->flags);
-	if (doit && mute) {
+	if (!doit)
+		return 0;
+	if (mute) {
 		ret = regmap_read(priv->regmap, IVM6303_VOLUME,
 				  &priv->saved_volume);
 		if (ret < 0)
 			goto err;
 		ret = regmap_write(priv->regmap, IVM6303_VOLUME, 0);
-	}
-	if (doit && !mute)
+	} else
 		ret = regmap_write(priv->regmap, IVM6303_VOLUME,
 				   priv->saved_volume);
 err:
