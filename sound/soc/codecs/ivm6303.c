@@ -989,9 +989,36 @@ static int load_fw(struct snd_soc_component *component)
 		section = IVM6303_PROBE_WRITES, reg_index = 0, delay_us = 0;
 	static char fw_file_name[MAX_FW_FILENAME_LEN];
 
-	snprintf(fw_file_name, sizeof(fw_file_name), "ivm6303-param-%2x.bin",
-		 priv->hw_rev);
-	ret = request_firmware(&priv->fw, fw_file_name, component->dev);
+	/*
+	 * Firmware is searched first with hw rev and i2c address in its
+	 * name (for loading different configuration for different devices,
+	 * and then with hw revision only (same firmware for all installed
+	 * devices)
+	 */
+	i = 0;
+	do {
+		switch(i++) {
+		case 0:
+			/*
+			 * First attempt: try loading fw file specific for
+			 * this device address and hw revision
+			 */
+			snprintf(fw_file_name, sizeof(fw_file_name),
+				 "ivm6303-param-%2x-%2x.bin",
+				 priv->hw_rev, priv->i2c_client->addr);
+			break;
+		case 1:
+			/* Second attempt: only look at hw revision */
+			snprintf(fw_file_name, sizeof(fw_file_name),
+				 "ivm6303-param-%2x.bin", priv->hw_rev);
+			break;
+		default:
+			/* UNREACHABLE */
+			ret = -EINVAL;
+			break;
+		}
+		ret = request_firmware(&priv->fw, fw_file_name, component->dev);
+	} while(ret < 0 && i < 2);
 	if (ret < 0) {
 		dev_err(component->dev, "cannot load firmware");
 		return ret;
