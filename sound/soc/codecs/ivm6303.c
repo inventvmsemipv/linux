@@ -1000,7 +1000,7 @@ static int load_fw(struct snd_soc_component *component)
 	ret = alloc_fw_section(component, IVM6303_PROBE_WRITES);
 	if (ret < 0)
 		return ret;
-	dev_dbg(component->dev, "firmware size = %d\n", fw->size);
+	dev_dbg(component->dev, "firmware size = %ld\n", fw->size);
 	for (w = (u16 *)fw->data, i =0, eof_record = -1;
 	     i < (fw->size / 2) && eof_record < 0; w++, i++) {
 		if (is_file_end(*w)) {
