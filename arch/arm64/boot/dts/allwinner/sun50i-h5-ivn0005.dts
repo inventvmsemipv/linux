@@ -72,12 +72,6 @@
 	bias-pull-up;
 };
 
-&i2s1 {
-	status = "okay";
-	pinctrl-names = "default";
-	pinctrl-0 = <&i2s1_pins>;
-};
-
 &pio {
 	i2s0_pins: i2s0_pinmux {
 		pins = "PA18", "PA19", "PA20", "PA21";
