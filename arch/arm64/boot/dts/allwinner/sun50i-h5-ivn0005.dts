@@ -88,6 +88,14 @@
        dr_mode = "peripheral";
 };
 
+&ohci0 {
+	status = "disabled";
+};
+
+&ehci0 {
+	status = "disabled";
+};
+
 &mmc1 {
 	status = "disabled";
 };
