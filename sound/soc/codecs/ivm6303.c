@@ -635,8 +635,7 @@ int playback_mode_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
 			ret = start_pll_polling(priv);
 		break;
 	case SND_SOC_DAPM_PRE_PMD:
-		if (!priv->capture_only &&
-		    !test_and_set_bit(WAITING_FOR_SPEAKER_OFF, &priv->flags))
+		if (!test_and_set_bit(WAITING_FOR_SPEAKER_OFF, &priv->flags))
 			ret = queue_work(priv->wq,
 					 &priv->speaker_deferred_work);
 		atomic_set(&priv->clk_status, STOPPED);
