@@ -91,30 +91,38 @@ static int configfs_sc_hw_params(struct snd_pcm_substream *substream,
 		struct asoc_configfs_dai_data *dd = &dl_data->cpus[i];
 
 		stat = _set_daifmt(rtd->dai_link, cpu_dai, dd);
-		if (stat)
+		if (stat && stat != -ENOTSUPP) {
+			dev_err(card->dev, "cpu set dai fmt failed\n");
 			return stat;
+		}
 		stat = snd_soc_dai_set_tdm_slot(cpu_dai,
 						dd->tx_mask,
 						dd->rx_mask,
 						dl_data->total_slots,
 						dd->slot_width);
-		if (stat)
+		if (stat && stat != -ENOTSUPP) {
+			dev_err(card->dev, "cpu set tdm slot failed\n");
 			return stat;
+		}
 	}
 
 	for_each_rtd_codec_dais(rtd, i, codec_dai) {
 		struct asoc_configfs_dai_data *dd = &dl_data->codecs[i];
 
 		stat = _set_daifmt(rtd->dai_link, codec_dai, dd);
-		if (stat)
+		if (stat && stat != -ENOTSUPP) {
+			dev_err(card->dev, "codec set dai fmt failed\n");
 			return stat;
+		}
 		stat = snd_soc_dai_set_tdm_slot(codec_dai,
 						dd->rx_mask,
 						dd->tx_mask,
 						dl_data->total_slots,
 						dd->slot_width);
-		if (stat)
+		if (stat && stat != -ENOTSUPP) {
+			dev_err(card->dev, "codec set tdm slot failed\n");
 			return stat;
+		}
 	}
 
 	return 0;
@@ -164,7 +172,7 @@ static int configfs_sc_late_probe(struct snd_soc_card *card)
 			ret = snd_soc_dai_set_sysclk(cpu_dai, 0,
 						     24576000/2,
 						     SND_SOC_CLOCK_IN);
-			if (ret < 0)
+			if (ret < 0 && ret != -ENOTSUPP)
 				return ret;
 		}
 	}
