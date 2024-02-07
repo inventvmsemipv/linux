@@ -28,9 +28,6 @@
 
 /* Base Region */
 #define IVM6303_SYSTEM_CTRL		0x00
-
-/* Base Region */
-#define IVM6303_SYSTEM_CTRL		0x00
 #define IVM6303_SOFTWARE_RESET		0x01
 #define IVM6303_ENABLES_SETTINGS(n)	(0x14 + (n))
 /* ENABLES_SETTINGS_1 */
