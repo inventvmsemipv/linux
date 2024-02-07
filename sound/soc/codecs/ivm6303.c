@@ -537,13 +537,12 @@ int playback_mode_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
 	return 0;
 }
 
-static int _set_vsis_en(struct ivm6303_priv *priv, int on)
+static int _set_vsis_en(struct ivm6303_priv *priv, int mask, int on)
 {
 	struct device *dev = &priv->i2c_client->dev;
 	int ret = regmap_update_bits(priv->regmap,
 				     IVM6303_VISENSE_SETTINGS(1),
-				     VIS_DIG_EN_MASK,
-				     on ? VIS_DIG_EN_MASK : 0);
+				     mask, on ? mask : 0);
 	if (ret < 0)
 		dev_err(dev, "error turning Vs/Is %s\n", on ? "On" : "Off");
 	return ret;
@@ -559,7 +558,12 @@ static void vsis_enable_handler(struct work_struct * work)
 	if (!test_and_clear_bit(WAITING_FOR_VSIS_ON, &priv->flags))
 		return;
 	mutex_lock(&priv->regmap_mutex);
-	stat = _set_vsis_en(priv, 1);
+	/*
+	 * Only enable Vs here, Is is needed (and actually works) only
+	 * when playback is acive. The IS_DIG_EN_I bit is set when enabling
+	 * the speaker
+	 */
+	stat = _set_vsis_en(priv, VIS_DIG_EN_V, 1);
 	mutex_unlock(&priv->regmap_mutex);
 	if (stat)
 		dev_err(dev, "Error enabling Vs/Is");
@@ -605,7 +609,7 @@ int adc_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
 	if (!on || !deferred) {
 		clear_bit(WAITING_FOR_VSIS_ON, &priv->flags);
 		mutex_lock(&priv->regmap_mutex);
-		ret = _set_vsis_en(priv, on);
+		ret = _set_vsis_en(priv, VIS_DIG_EN_MASK, on);
 		mutex_unlock(&priv->regmap_mutex);
 	} else {
 		/*
@@ -1227,7 +1231,7 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 		pr_err("AUTOCAL NEEDED FOR THIS DEVICE, BUT DRIVER DOES NOT SUPPORT IT ANYMORE\n");
 
 	if (test_and_clear_bit(WAITING_FOR_VSIS_ON, &priv->flags)) {
-		stat = _set_vsis_en(priv, 1);
+		stat = _set_vsis_en(priv, VIS_DIG_EN_MASK, 1);
 		if (stat < 0)
 			pr_err("Error reading VsIs enable bits\n");
 	}
