@@ -750,10 +750,29 @@ static inline int _do_reset(struct ivm6303_priv *priv)
 }
 
 /* Assumes regmap lock taken */
-static inline int _do_power_up(struct ivm6303_priv *priv)
+static inline int _do_power(struct ivm6303_priv *priv, int up)
 {
 	return regmap_update_bits(priv->regmap, IVM6303_SYSTEM_CTRL, POWER,
-				  POWER);
+				  up ? POWER : 0);
+}
+
+static inline int _do_power_up(struct ivm6303_priv *priv)
+{
+	return _do_power(priv, 1);
+}
+
+static inline int _do_power_down(struct ivm6303_priv *priv)
+{
+	return _do_power(priv, 0);
+}
+
+static int _resync_power_state(struct snd_soc_component *component)
+{
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	int on;
+
+	on = snd_soc_component_get_bias_level(component) != SND_SOC_BIAS_OFF;
+	return _do_power(priv, on);
 }
 
 static int check_hw_rev(struct snd_soc_component *component)
@@ -812,6 +831,9 @@ static int cope_with_untrimmed(struct snd_soc_component *component)
 		goto err;
 	if (v != 0xff) {
 		/* Part is trimmed */
+		ret = _do_power_down(priv);
+		if (ret)
+			dev_err(component->dev, "error powering down\n");
 		mutex_unlock(&priv->regmap_mutex);
 		return ret;
 	}
@@ -1413,8 +1435,14 @@ static int ivm6303_set_bias_level(struct snd_soc_component *component,
 	case SND_SOC_BIAS_PREPARE:
 		break;
 	case SND_SOC_BIAS_STANDBY:
-		if (prev_level == SND_SOC_BIAS_OFF)
+		if (prev_level == SND_SOC_BIAS_OFF) {
+			/* Power up first */
+			ret = _do_power(priv, 1);
+			if (ret)
+				dev_err(dev,
+					"%s: error powering up\n", __func__);
 			run_fw_section(component, IVM6303_BIAS_OFF_TO_STANDBY);
+		}
 		if (prev_level == SND_SOC_BIAS_PREPARE) {
 			/* Disable TDM */
 			ret = set_tdm_enable(priv, 0);
@@ -1440,6 +1468,8 @@ static int ivm6303_set_bias_level(struct snd_soc_component *component,
 	case SND_SOC_BIAS_OFF:
 		if (prev_level == SND_SOC_BIAS_STANDBY)
 			run_fw_section(component, IVM6303_BIAS_STANDBY_TO_OFF);
+		/* Turn off power on BIAS OFF */
+		ret = _do_power(priv, 0);
 		break;
 	}
 	return ret;
@@ -1475,9 +1505,17 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 	if (ret < 0)
 		return ret;
 	ivm6303_init_debugfs(component);
-	/* Initialize volume */
 	mutex_lock(&priv->regmap_mutex);
+	/* Power up */
+	ret = _do_power_up(priv);
+	/* Initialize volume */
 	ret = regmap_read(priv->regmap, IVM6303_VOLUME, &priv->saved_volume);
+	if (ret)
+		dev_err(component->dev, "error reading initial volume\n");
+	/* Switch off power */
+	ret = _resync_power_state(component);
+	if (ret)
+		dev_err(component->dev, "error syncing power state\n");
 	mutex_unlock(&priv->regmap_mutex);
 	return ret;
 }
@@ -1497,6 +1535,7 @@ static void ivm6303_component_remove(struct snd_soc_component *component)
 	atomic_set(&priv->clk_status, 0);
 	unload_fw(component);
 	regcache_drop_region(priv->regmap, 0, IVM6303_LAST_REG);
+	_do_power_down(priv);
 }
 
 static const char *ch3_output_mux_texts[] = {
@@ -2059,6 +2098,10 @@ static int ivm6303_hw_params(struct snd_pcm_substream *substream,
 
 	mutex_lock(&priv->regmap_mutex);
 
+	ret = _do_power_up(priv);
+	if (ret < 0)
+		goto err;
+
 	/* Set PLL given bclk */
 	ret = _setup_pll(component, bclk);
 	if (ret < 0)
@@ -2067,6 +2110,7 @@ static int ivm6303_hw_params(struct snd_pcm_substream *substream,
 	/* Set samples and slots sizes */
 	ret = _set_sam_size(component, substream->stream, samsize);
 err:
+	_resync_power_state(component);
 	mutex_unlock(&priv->regmap_mutex);
 	return ret;
 }
@@ -2145,7 +2189,7 @@ static int _set_protocol(struct snd_soc_dai *dai, unsigned int fmt)
 
 static int ivm6303_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 {
-	int ret;
+	int ret, stat;
 	struct snd_soc_component *component = dai->component;
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
 
@@ -2170,12 +2214,15 @@ static int ivm6303_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 		return -EINVAL;
 	}
 	mutex_lock(&priv->regmap_mutex);
-	ret = _set_protocol(dai, fmt);
+	ret = _do_power_up(priv);
+	if (!ret)
+		ret = _set_protocol(dai, fmt);
+	stat = _resync_power_state(component);
+	if (stat)
+		dev_err(component->dev, "error in resync power state\n");
 	mutex_unlock(&priv->regmap_mutex);
 	dev_dbg(component->dev, "%s leaving, ret = %d\n", __func__, ret);
-	if (ret < 0)
-		return ret;
-	return 0;
+	return ret;
 }
 
 static int _assign_slot(struct ivm6303_priv *priv, bool tx, unsigned int ch,
@@ -2302,6 +2349,11 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 		slots, slot_width);
 
 	mutex_lock(&priv->regmap_mutex);
+	stat = _do_power_up(priv);
+	if (stat < 0) {
+		dev_err(component->dev, "error powering up device\n");
+		goto err;
+	}
 	stat = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(3),
 				  I_SLOT_SIZE_MASK, w);
 	if (stat < 0) {
@@ -2319,6 +2371,9 @@ static int ivm6303_set_tdm_slot(struct snd_soc_dai *dai,
 		goto err;
 	stat = _program_rx_channels(priv, rx_mask);
 err:
+	stat = _resync_power_state(component);
+	if (stat < 0)
+		dev_err(component->dev, "error resyncing power state\n");
 	mutex_unlock(&priv->regmap_mutex);
 	return stat;
 }
@@ -2339,6 +2394,11 @@ static int ivm6303_set_channel_map(struct snd_soc_dai *dai,
 		return -EINVAL;
 	}
 	mutex_lock(&priv->regmap_mutex);
+	stat = _do_power_up(priv);
+	if (stat) {
+		dev_err(component->dev, "Error powering up device\n");
+		goto err;
+	}
 	for (i = 0; i < tx_num; i++) {
 		v = tx_slot[i] + 1;
 		r = IVM6303_TDM_SETTINGS(0xb) + (i << 1);
@@ -2360,6 +2420,9 @@ static int ivm6303_set_channel_map(struct snd_soc_dai *dai,
 	if (stat < 0)
 		dev_err(component->dev, "Error writing register %u\n", r);
 err:
+	stat = _resync_power_state(component);
+	if (stat < 0)
+		dev_err(component->dev, "Error resyncing power state\n");
 	mutex_unlock(&priv->regmap_mutex);
 	return stat;
 }
@@ -2383,6 +2446,11 @@ static int ivm6303_get_channel_map(struct snd_soc_dai *dai,
 	 * have 1,2,3
 	 */
 	mutex_lock(&priv->regmap_mutex);
+	stat = _do_power_up(priv);
+	if (stat < 0) {
+		dev_err(component->dev, "Error powering up device\n");
+		goto err;
+	}
 	for (ch = 0, *tx_num = 0; ch < 4; ch++) {
 		/*
 		 * Each channel can be assigned 2 slots, we just consider
@@ -2417,6 +2485,9 @@ static int ivm6303_get_channel_map(struct snd_soc_dai *dai,
 		(*rx_num)++;
 	}
 err:
+	stat = _resync_power_state(component);
+	if (stat)
+		dev_err(component->dev, "error resyncing power state\n");
 	mutex_unlock(&priv->regmap_mutex);
 	return stat;
 }
@@ -2432,6 +2503,7 @@ static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 		return 0;
 
 	mutex_lock(&priv->regmap_mutex);
+	ret = _do_power_up(priv);
 	if (!test_bit(SPEAKER_ENABLED, &priv->flags)) {
 		/*
 		 * Actual mute status will be resynced when speaker is turned
@@ -2441,6 +2513,9 @@ static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 		set_bit(DEFERRED_MUTE, &priv->flags);
 	} else
 		ret = _do_mute(priv, mute);
+	ret = _resync_power_state(component);
+	if (ret)
+		dev_err(component->dev, "error resyncing power state\n");
 	mutex_unlock(&priv->regmap_mutex);
 	return ret;
 }
