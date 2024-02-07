@@ -173,6 +173,9 @@
 #define IVM6303_DIG_TEST_SETTINGS(x)    \
 	(((x) - 1) + (((x) <= 2) ? 0x103 : 0x106))
 
+#define IVM6303_SEQ_SETTINGS		0x10d
+# define SEQ_OTP_LOAD_DIS		BIT(0)
+
 #define IVM6303_FORCE_INTFB		0x110
 
 #define IVM6303_ANALOG_REG2_FORCE	0x112
@@ -216,6 +219,9 @@
 #define IVM6303_GAIN_100_OFFS_COMP_LO	0x1d9
 #define IVM6303_GAIN_101_OFFS_COMP_HI	0x1d9
 #define IVM6303_GAIN_101_OFFS_COMP_LO	0x1da
+
+/* Otp registers, starting from 0 */
+#define IVM6303_OTP(n)			((n)+0x1d2)
 
 #define IVM6303_GAIN_OFFS_INTFB_COMP(n)	((n) + 0x1db)
 
@@ -849,6 +855,29 @@ static inline int needs_autocal(struct ivm6303_priv *priv)
 	return priv->quirks->needs_autocal;
 }
 
+/* Assumes regmap lock taken */
+static inline int _do_reset(struct ivm6303_priv *priv)
+{
+	int ret;
+	struct device *dev = &priv->i2c_client->dev;
+
+	ret = regmap_update_bits(priv->regmap, IVM6303_SOFTWARE_RESET, RESET,
+				 RESET);
+	if (ret) {
+		dev_err(dev, "Error resetting device\n");
+		return ret;
+	}
+	regcache_drop_region(priv->regmap, 0, IVM6303_LAST_REG);
+	return ret;
+}
+
+/* Assumes regmap lock taken */
+static inline int _do_power_up(struct ivm6303_priv *priv)
+{
+	return regmap_update_bits(priv->regmap, IVM6303_SYSTEM_CTRL, POWER,
+				  POWER);
+}
+
 static int check_hw_rev(struct snd_soc_component *component)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
@@ -876,6 +905,57 @@ err:
 	mutex_unlock(&priv->regmap_mutex);
 	if (!ret)
 		dev_info(component->dev, "ivm6303 rev %2x\n", rev);
+	return ret;
+}
+
+static int cope_with_untrimmed(struct snd_soc_component *component)
+{
+	int ret, i;
+	unsigned int v = 0;
+	/* Check registers: otp registers 15 and 16 (0x1e1, 0x1e2) */
+	unsigned int otp_check_regs[] = { IVM6303_OTP(15), IVM6303_OTP(16) };
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+
+	mutex_lock(&priv->regmap_mutex);
+
+	ret = _do_reset(priv);
+	if (ret < 0)
+		goto err;
+
+	ret = _do_power_up(priv);
+	if (ret < 0)
+		goto err;
+
+	/* If all registers == 0xff -> part is untrimmed */
+	for (i = 0; i < ARRAY_SIZE(otp_check_regs) && v != 0xff && !ret; i++)
+		ret = regmap_read(priv->regmap, otp_check_regs[i], &v);
+
+	if (ret < 0)
+		goto err;
+	if (v != 0xff) {
+		/* Part is trimmed */
+		mutex_unlock(&priv->regmap_mutex);
+		return ret;
+	}
+
+	/* Part is untrimmed */
+	dev_info(component->dev, "part is not trimmed\n");
+	ret = _do_reset(priv);
+	if (ret)
+		goto err;
+	/* Do not load otp registers */
+	ret = regmap_update_bits(priv->regmap, IVM6303_SEQ_SETTINGS,
+				 SEQ_OTP_LOAD_DIS, SEQ_OTP_LOAD_DIS);
+	if (ret)
+		goto err;
+	ret = _do_power_up(priv);
+	if (ret)
+		goto err;
+	mutex_unlock(&priv->regmap_mutex);
+	return ret;
+err:
+	mutex_unlock(&priv->regmap_mutex);
+	dev_err(component->dev, "cope_with_untrimmed() error\n");
 	return ret;
 }
 
@@ -1716,6 +1796,9 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 	if (!priv)
 		return -ENODEV;
 	ret = check_hw_rev(component);
+	if (ret < 0)
+		return ret;
+	ret = cope_with_untrimmed(component);
 	if (ret < 0)
 		return ret;
 	ret = load_fw(component);
