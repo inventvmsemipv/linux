@@ -268,132 +268,6 @@ enum ivm6303_irq {
 struct ivm6303_platform_data {
 };
 
-/*
- * Structure describing a "virtual" register made of
- * bit fields distributed over several different registers.
- *
- * @nfields: number of fields.
- * @fields: array of registers fields
- */
-struct ivm6303_mfr {
-	int nfields;
-	struct reg_field fields[];
-};
-
-enum ivm6303_mfr_num {
-	IVM6303_MFR_GAIN_100_OFFS_COMP = 0,
-	IVM6303_MFR_CALC_AZ_MEAS_INT,
-	IVM6303_MFR_V_SENSE,
-	IVM6303_MFR_VIS_SETTINGS,
-	IVM6303_MFR_NR,
-};
-
-#define IVM6303_MFR(name, nf, fs)		 \
-	static const struct ivm6303_mfr name = { \
-		.nfields = nf,			 \
-		.fields = fs,			 \
-	}
-
-#define ARRAY(args...) { args }
-
-IVM6303_MFR(gain_100_offs_comp, 2,
-	    ARRAY(REG_FIELD(IVM6303_GAIN_100_OFFS_COMP_LO, 4, 7),
-		  REG_FIELD(IVM6303_GAIN_100_OFFS_COMP_HI, 0, 7)));
-IVM6303_MFR(calc_az_meas_int, 3,
-	    ARRAY(REG_FIELD(IVM6303_CAL_STATUS(6), 0, 7),
-		  REG_FIELD(IVM6303_CAL_STATUS(5), 0, 7),
-		  REG_FIELD(IVM6303_CAL_STATUS(4), 0, 4)));
-IVM6303_MFR(v_sense, 2,
-	    ARRAY(REG_FIELD(IVM6303_VSENSE + 1, 0, 7),
-		  REG_FIELD(IVM6303_VSENSE, 0, 7)));
-IVM6303_MFR(vis_settings, 3,
-	    ARRAY(REG_FIELD(IVM6303_VISENSE_SETTINGS(1), 0, 7),
-		  REG_FIELD(IVM6303_VISENSE_SETTINGS(6), 0, 7),
-		  REG_FIELD(IVM6303_VISENSE_SETTINGS(8), 0, 7)));
-
-static const struct ivm6303_mfr *ivm6303_mfrs[] = {
-	[ IVM6303_MFR_GAIN_100_OFFS_COMP ] = &gain_100_offs_comp,
-	[ IVM6303_MFR_CALC_AZ_MEAS_INT ] = &calc_az_meas_int,
-	[ IVM6303_MFR_V_SENSE ] = &v_sense,
-	[ IVM6303_MFR_VIS_SETTINGS ] = &vis_settings,
-};
-
-static long sign_extend(unsigned long v, int nbits)
-{
-	 unsigned long mask = ~((1 << nbits) - 1);
-	 unsigned long msb_mask = 1 << (nbits - 1);
-
-	 return (long)(v | (v & msb_mask ? mask : 0));
-}
-
-/* Assumes regmap mutex taken */
-static int _ivm6303_mfr_read(struct ivm6303_priv *priv,
-			     unsigned int mfr_index,
-			     long *value, int sext)
-{
-	struct device *dev = &priv->i2c_client->dev;
-	const struct ivm6303_mfr *mfr;
-	int i, ret, shift, nbits;
-	unsigned long _value;
-
-	if (mfr_index >= IVM6303_MFR_NR)
-		return -EINVAL;
-	*value = 0;
-	mfr = ivm6303_mfrs[mfr_index];
-	for (i = 0, shift = 0, _value = 0; i < mfr->nfields;
-	     i++, shift += nbits) {
-		unsigned int v;
-		unsigned long msk;
-		const struct reg_field *rf = &mfr->fields[i];
-
-		nbits = rf->msb - rf->lsb + 1;
-		msk = ((1 << nbits) - 1) << rf->lsb;
-		ret = regmap_read(priv->regmap, rf->reg, &v);
-		if (ret < 0) {
-			dev_err(dev, "error reading register field\n");
-			break;
-		}
-		v &= msk;
-		v >>= rf->lsb;
-		_value |= (v <<= shift);
-	}
-	if (!ret)
-		*value = sext ? sign_extend(_value, shift) : (long)_value;
-	return ret;
-}
-
-/* Assumes regmap mutex taken */
-static int _ivm6303_mfr_write(struct ivm6303_priv *priv,
-			      unsigned int mfr_index,
-			      long value)
-{
-	struct device *dev = &priv->i2c_client->dev;
-	const struct ivm6303_mfr *mfr;
-	int i, ret, shift, nbits;
-
-	if (mfr_index >= IVM6303_MFR_NR)
-		return -EINVAL;
-	mfr = ivm6303_mfrs[mfr_index];
-	for (i = 0, shift = 0; i < mfr->nfields; i++, shift += nbits) {
-		unsigned int v;
-		unsigned long msk;
-		const struct reg_field *rf = &mfr->fields[i];
-
-		nbits = rf->msb - rf->lsb + 1;
-		msk = ((1 << nbits) - 1);
-		v = ((unsigned long)value & (msk << shift)) >> shift;
-		ret = regmap_update_bits(priv->regmap,
-					 rf->reg,
-					 msk << rf->lsb,
-					 v << rf->lsb);
-		if (ret < 0) {
-			dev_err(dev, "error writing register field\n");
-			break;
-		}
-	}
-	return ret;
-}
-
 
 /*
  * Assumes regmap mutex taken
@@ -1178,214 +1052,6 @@ static void unload_fw(struct snd_soc_component *component)
 }
 
 /* Assumes regmap lock taken */
-static int _prepare_az_meas(struct ivm6303_priv *priv, int cycle)
-{
-	struct ivm6303_register seq[] = {
-		{
-			.addr = IVM6303_TEST_DIG1_FORCE,
-			.val = FORCE_SEQ_CAL_EN,
-		},
-		{
-			.addr = IVM6303_TEST_DIG1,
-			.val = 0,
-		},
-		{
-			.addr = IVM6303_CAL_SETTINGS(3),
-			.val = cycle ?
-			/* 0x14 */
-			CAL_AZ_EN | CAL_MODE_INTFB_ONLY_2MEAS :
-			/* 0x34 */
-			CAL_AZ_EN | CAL_MODE_INTFB_ONLY_1MEAS,
-		},
-		{
-			.addr = IVM6303_TEST_DIG1,
-			.val = SEQ_CAL_EN_M,
-		},
-	};
-
-	return _do_regs_assign_seq(priv, ARRAY_SIZE(seq), seq);
-}
-
-/* Assumes regmap lock taken */
-static int _post_az_seq(struct ivm6303_priv *priv)
-{
-	struct ivm6303_register seq[] = {
-		{
-			.addr = IVM6303_TEST_DIG1_FORCE,
-			.val = 0,
-		},
-		{
-			.addr = IVM6303_TEST_DIG1,
-			.val = 0,
-		},
-	};
-
-	return _do_regs_assign_seq(priv, ARRAY_SIZE(seq), seq);
-}
-
-/* Assumes regmap lock taken */
-static int _az_avg_calc(struct ivm6303_priv *priv, long *out)
-{
-	long autozero, v;
-	int i, ret;
-
-	for (i = 0, autozero = 0; i < 2; i++, autozero += v) {
-
-		ret = _prepare_az_meas(priv, i);
-		if (ret < 0)
-			return ret;
-		regmap_update_bits(priv->regmap, IVM6303_TEST_DIG1,
-				   FORCE_SEQ_CAL_EN, FORCE_SEQ_CAL_EN);
-		msleep(100);
-		ret = _ivm6303_mfr_read(priv, IVM6303_MFR_CALC_AZ_MEAS_INT,
-					&v, 1);
-		if (ret < 0)
-			return ret;
-	}
-	*out = (autozero / i) >> 5;
-	return _post_az_seq(priv);
-}
-
-static int _get_avg_vsense(struct ivm6303_priv *priv, long *out)
-{
-#define VSENSE_AVG_SAMPLES 16
-	int i, ret;
-	long v, w;
-
-	for (i = 0, v = 0; i < VSENSE_AVG_SAMPLES; i++) {
-	    ret =  _ivm6303_mfr_read(priv, IVM6303_MFR_V_SENSE, &w, 1);
-		if (ret < 0)
-			return ret;
-		v += w;
-	}
-	*out = v / VSENSE_AVG_SAMPLES;
-	return ret;
-}
-
-#define MAX_ERROR_THR 4
-#define MAX_ITERATIONS 20
-
-/* Assumes regmap lock taken */
-static int _vsense_check_loop(struct ivm6303_priv *priv, long az_avg,
-			      long _gain_offs_comp_v)
-{
-	struct device *dev = &priv->i2c_client->dev;
-	long error, avg_vsns, gain_offs_com_v = _gain_offs_comp_v;
-	int ret, i;
-
-	for (i = 0; i < MAX_ITERATIONS; i++) {
-		ret = _get_avg_vsense(priv, &avg_vsns);
-		if (ret < 0)
-			return ret;
-		error = avg_vsns - az_avg;
-		if (abs(error) < MAX_ERROR_THR)
-			break;
-		/* FIXME !!!!!! */
-		/* Delta(Offset)/Delta(az) rate of change is 256/30 */
-		gain_offs_com_v += error << 3;
-		ret = _ivm6303_mfr_write(priv,
-					 IVM6303_MFR_GAIN_100_OFFS_COMP,
-					 gain_offs_com_v);
-	}
-	if (ret) {
-		dev_err(dev, "Autocal failed (%d)\n", ret);
-		return ret;
-	}
-	ret = i < MAX_ITERATIONS ? 0 : -ETIMEDOUT;
-	dev_dbg(dev, "Autocal retcode %d, %d iterations, final error = %ld\n",
-		ret, i, error);
-	return ret;
-}
-
-static int _do_autocal(struct ivm6303_priv *priv)
-{
-	int ret, _ret;
-	unsigned int gain_100_offs_int_comp_v;
-	long gain_100_offs_comp_v, prev_gain_100_offs_comp_v, az_avg;
-	long vis_settings_saved_vals;
-	/* A0: LSB, A7: MSB */
-	long vis_settings_enter_vals = 0x5f2701;
-	u8 cal_intfb_leave_vals[] = { 0x00, 0x00, };
-	u8 cal_intfb_enter_vals[] = { BIT(6), BIT(6), };
-	struct device *dev = &priv->i2c_client->dev;
-
-
-	ret = regmap_bulk_write(priv->regmap, IVM6303_ANALOG_REG3_FORCE,
-				cal_intfb_enter_vals,
-				ARRAY_SIZE(cal_intfb_enter_vals));
-	if (ret < 0)
-		goto end;
-	/*
-	 * save value of register 0xdf (it could change during the autozero
-	 * calc procedure
-	 */
-	ret = regmap_read(priv->regmap, IVM6303_GAIN_OFFS_INTFB_COMP(4),
-			  &gain_100_offs_int_comp_v);
-	if (ret)
-		goto end;
-	ret = _ivm6303_mfr_read(priv, IVM6303_MFR_GAIN_100_OFFS_COMP,
-				&gain_100_offs_comp_v, 1);
-	if (ret)
-		goto end;
-	/* Save for restoring later on, in case autocal goes wrong */
-	prev_gain_100_offs_comp_v = gain_100_offs_comp_v;
-	/*
-	 * Save Vs/Is settings registers and set them properly
-	 * for the calibration procedure
-	 */
-	ret = _ivm6303_mfr_read(priv, IVM6303_MFR_VIS_SETTINGS,
-				&vis_settings_saved_vals, 0);
-	if (ret)
-		goto end;
-	ret = _ivm6303_mfr_write(priv, IVM6303_MFR_VIS_SETTINGS,
-				 vis_settings_enter_vals);
-	if (ret < 0)
-		goto end;
-	ret = _az_avg_calc(priv, &az_avg);
-	dev_dbg(dev, "Autocal: az_avg = %ld\n", az_avg);
-	if (ret < 0)
-		goto pdown;
-	/* restore register 0xdf */
-	ret = regmap_write(priv->regmap, IVM6303_GAIN_OFFS_INTFB_COMP(4),
-			   gain_100_offs_int_comp_v);
-	if (ret < 0) {
-		dev_err(dev, "could not restore 0xdf (%d)", ret);
-		goto pdown;
-	}
-	ret = regmap_bulk_write(priv->regmap, IVM6303_ANALOG_REG3_FORCE,
-				cal_intfb_leave_vals,
-				ARRAY_SIZE(cal_intfb_leave_vals));
-	if (ret < 0) {
-		dev_err(dev, "could not restore 0x114 0x115 (%d)", ret);
-		goto pdown;
-	}
-	/* Check new vsense after correction */
-	ret = _vsense_check_loop(priv, az_avg, gain_100_offs_comp_v);
-	if (ret < 0) {
-		/* Autocal did not converge, restore saved gain */
-		_ret = _ivm6303_mfr_write(priv,
-					  IVM6303_MFR_GAIN_100_OFFS_COMP,
-					  prev_gain_100_offs_comp_v);
-		if (ret < 0)
-			dev_err(dev, "could not restore register 0xdf");
-	}
-pdown:
-	/*
-	 * all done, restore Vs/Is settings
-	 * and leave calibration internal feedback
-	 * Best effort, no error check on return here
-	 */
-	dev_dbg(dev, "Autocal: restoring vis settings 0x%08x\n",
-		(unsigned int)vis_settings_saved_vals);
-	_ret = _ivm6303_mfr_write(priv, IVM6303_MFR_VIS_SETTINGS,
-				  vis_settings_saved_vals);
-	if (_ret < 0 && ret >= 0)
-		ret = _ret;
-end:
-	return ret;
-}
-
-/* Assumes regmap lock taken */
 static int _poll_pll_locked(struct ivm6303_priv *priv)
 {
 	int ret;
@@ -1510,12 +1176,9 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 	stat = regmap_write(priv->regmap, IVM6303_ANALOG_REG2_FORCE, 0);
 	if (stat < 0)
 		pr_err("Error restoring 0x112 to 0\n");
-	/* Do autocal if needed */
-	if (en && needs_autocal(priv) && !priv->autocal_done) {
-		stat = _do_autocal(priv);
-		if (!stat)
-			priv->autocal_done = 1;
-	}
+
+	if (en && needs_autocal(priv))
+		pr_err("AUTOCAL NEEDED FOR THIS DEVICE, BUT DRIVER DOES NOT SUPPORT IT ANYMORE\n");
 
 	if (test_and_clear_bit(WAITING_FOR_VSIS_ON, &priv->flags)) {
 		stat = _set_vsis_en(priv, 1);
@@ -1546,15 +1209,6 @@ static void _turn_speaker_on(struct ivm6303_priv *priv)
 static void _turn_speaker_off(struct ivm6303_priv *priv)
 {
 	_set_speaker_enable(priv, 0);
-}
-
-int ivm6303_force_autocal(struct ivm6303_priv *priv)
-{
-	mutex_lock(&priv->regmap_mutex);
-	priv->autocal_done = 0;
-	_set_speaker_enable(priv, 1);
-	mutex_unlock(&priv->regmap_mutex);
-	return 0;
 }
 
 /* Assumes regmap mutex taken */
@@ -1834,7 +1488,7 @@ static void ivm6303_component_remove(struct snd_soc_component *component)
 	flush_workqueue(priv->wq);
 	destroy_workqueue(priv->wq);
 	priv->wq = NULL;
-	priv->autocal_done = priv->flags = priv->muted = priv->capture_only = 0;
+	priv->flags = priv->muted = priv->capture_only = 0;
 	priv->tdm_settings_1 = -1;
 	atomic_set(&priv->clk_status, 0);
 	unload_fw(component);

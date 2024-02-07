@@ -90,7 +90,6 @@ struct ivm6303_priv {
 	struct ivm6303_fw_section fw_sections[IVM6303_N_SECTIONS];
 	atomic_t		running_section;
 	int			tdm_apply_needed;
-	int			autocal_done;
 	atomic_t		clk_status;
 #define WAITING_FOR_SPEAKER_OFF 1
 #define WAITING_FOR_SPEAKER_ON 2
@@ -120,7 +119,5 @@ static inline void ivm6303_cleanup_debugfs(struct snd_soc_component *component)
 }
 
 #endif /* !CONFIG_DEBUG_FS */
-
-int ivm6303_force_autocal(struct ivm6303_priv *priv);
 
 #endif /* __IVM6303_H__ */
