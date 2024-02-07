@@ -28,7 +28,11 @@
 
 /* Base Region */
 #define IVM6303_SYSTEM_CTRL		0x00
+# define POWER				BIT(0)
+
 #define IVM6303_SOFTWARE_RESET		0x01
+# define RESET				BIT(0)
+
 #define IVM6303_ENABLES_SETTINGS(n)	(0x14 + (n))
 /* ENABLES_SETTINGS_1 */
 # define REF_EN				BIT(0)
@@ -407,8 +411,8 @@ static int _do_regs_assign_seq(struct ivm6303_priv *priv,
 			dev_err(dev, "error writing to register %u", r->addr);
 			break;
 		}
-		if ((r->addr == IVM6303_SYSTEM_CTRL) &&
-		    (r->val & IVM6303_SOFTWARE_RESET))
+		if ((r->addr == IVM6303_SOFTWARE_RESET) &&
+		    (r->val & RESET))
 			/* Doing reset, invalidate cache */
 			regcache_drop_region(priv->regmap, 0, 0x1ff);
 		if (r->delay_us) {
