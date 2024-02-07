@@ -493,8 +493,8 @@ static int start_pll_polling(struct ivm6303_priv *priv)
 				  PLL_LOCKED_POLL_PERIOD);
 }
 
-int playback_mode_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
-			int e)
+static int playback_mode_event(struct snd_soc_dapm_widget *w,
+			       struct snd_kcontrol *c, int e)
 {
 	struct snd_soc_component *component =
 		snd_soc_dapm_to_component(w->dapm);
@@ -569,7 +569,8 @@ static void vsis_enable_handler(struct work_struct * work)
 		dev_err(dev, "Error enabling Vs/Is");
 }
 
-int adc_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c, int e)
+static int adc_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
+		     int e)
 {
 	struct snd_soc_component *component =
 		snd_soc_dapm_to_component(w->dapm);
