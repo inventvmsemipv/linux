@@ -1191,45 +1191,21 @@ err:
 
 static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 {
-	static const u8 force_intfb_vals[] = { 0x70, 0x60, 0x01, };
-	static const u8 leave_intfb_vals[] = { 0x00, 0x00, };
 	unsigned int v;
 	int stat;
+	struct ivm6303_fw_section *section = en ?
+		&priv->fw_sections[IVM6303_STREAM_START]:
+		&priv->fw_sections[IVM6303_STREAM_STOP];
 
 	if (!en) {
 		_do_mute(priv, 1);
 		msleep(100);
 	}
 
-	/* Force internal feedback */
-	stat = regmap_bulk_write(priv->regmap, IVM6303_FORCE_INTFB,
-				 force_intfb_vals,
-				 ARRAY_SIZE(force_intfb_vals));
-	if (stat < 0)
-		pr_err("Error forcing internal feedback\n");
-	if (!en)
-		msleep(200);
-	/* Turn on speaker */
-	stat = regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(5),
-				  SPK_EN, en ? SPK_EN : 0);
-	if (stat < 0)
-		pr_err("Error enabling speaker\n");
-	/* Boost enable */
-	stat = regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(1),
-				  BST_EN, en ? BST_EN : 0);
-	if (stat < 0)
-		pr_err("Error enabling boost\n");
-	if (en)
-		msleep(50);
-	else
-		msleep(100);
-	/* Restore 0x112 to zero */
-	stat = regmap_write(priv->regmap, IVM6303_ANALOG_REG2_FORCE, 0);
-	if (stat < 0)
-		pr_err("Error restoring 0x112 to 0\n");
-
 	if (en && needs_autocal(priv))
 		pr_err("AUTOCAL NEEDED FOR THIS DEVICE, BUT DRIVER DOES NOT SUPPORT IT ANYMORE\n");
+
+	_run_fw_section(priv, section);
 
 	if (test_and_clear_bit(WAITING_FOR_VSIS_ON, &priv->flags)) {
 		stat = _set_vsis_en(priv, VIS_DIG_EN_MASK, 1);
@@ -1237,12 +1213,6 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 			pr_err("Error reading VsIs enable bits\n");
 	}
 
-	/* Finally leave internal feedback */
-	stat = regmap_bulk_write(priv->regmap, IVM6303_FORCE_INTFB,
-				 leave_intfb_vals,
-				 ARRAY_SIZE(leave_intfb_vals));
-	if (stat < 0)
-		pr_err("Error %d leaving internal feedback\n", stat);
 	if (en) {
 		_do_mute(priv, priv->muted);
 		set_bit(SPEAKER_ENABLED, &priv->flags);
