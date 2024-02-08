@@ -26,6 +26,9 @@
 
 #include "ivm6303.h"
 
+/* First supported fw abi */
+#define OLDEST_FW_ABI			1
+
 /* Base Region */
 #define IVM6303_SYSTEM_CTRL		0x00
 # define POWER				BIT(0)
@@ -272,6 +275,10 @@ enum ivm6303_irq {
 struct ivm6303_platform_data {
 };
 
+static int check_fw_abi(unsigned int abi)
+{
+	return abi >= OLDEST_FW_ABI ? 0 : -1;
+}
 
 /*
  * Assumes regmap mutex taken
@@ -1139,6 +1146,11 @@ static int load_fw(struct snd_soc_component *component)
 				return -ENOMEM;
 			}
 		}
+	}
+	if (check_fw_abi(fw_abi)) {
+		dev_err(component->dev,
+			"firmware ABI 0x%08x is incompatible\n", fw_abi);
+		return -EINVAL;
 	}
 	dev_info(component->dev, "firmware loaded");
 	if (eof_record < 0)
