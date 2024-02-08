@@ -447,6 +447,56 @@ static int _set_vsis_en(struct ivm6303_priv *priv, int mask, int on)
 	return ret;
 }
 
+static int _do_mute(struct ivm6303_priv *priv, int mute)
+{
+	int doit, ret;
+
+	doit = mute != priv->muted ||
+		test_and_clear_bit(DEFERRED_MUTE, &priv->flags);
+	if (!doit)
+		return 0;
+	if (mute) {
+		if (test_bit(SPEAKER_ENABLED, &priv->flags)) {
+			ret = regmap_read(priv->regmap, IVM6303_VOLUME,
+					  &priv->saved_volume);
+			if (ret < 0)
+				goto err;
+		}
+		ret = regmap_write(priv->regmap, IVM6303_VOLUME, 0);
+	} else
+		ret = regmap_write(priv->regmap, IVM6303_VOLUME,
+				   priv->saved_volume);
+err:
+	if (ret >= 0 && doit)
+		priv->muted = mute;
+	return ret;
+}
+
+static inline int needs_autocal(struct ivm6303_priv *priv)
+{
+	return priv->quirks->needs_autocal;
+}
+
+static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
+{
+	struct ivm6303_fw_section *section = en ?
+		&priv->fw_sections[IVM6303_STREAM_START]:
+		&priv->fw_sections[IVM6303_STREAM_STOP];
+
+	if (!en) {
+		_do_mute(priv, 1);
+		msleep(100);
+	}
+
+	if (en && needs_autocal(priv))
+		pr_err("AUTOCAL NEEDED FOR THIS DEVICE, BUT DRIVER DOES NOT SUPPORT IT ANYMORE\n");
+
+	_run_fw_section(priv, section);
+
+	if (en)
+		_do_mute(priv, priv->muted);
+}
+
 static int playback_mode_control_get(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
@@ -745,11 +795,6 @@ static const struct ivm6303_quirks quirks[] = {
 };
 
 #define QUIRKS(a) &quirks[REV_OFFSET(a)]
-
-static inline int needs_autocal(struct ivm6303_priv *priv)
-{
-	return priv->quirks->needs_autocal;
-}
 
 /* Assumes regmap lock taken */
 static inline int _do_reset(struct ivm6303_priv *priv)
@@ -1175,51 +1220,6 @@ static int _set_dsp_enable(struct ivm6303_priv *priv, int en)
 				  IVM6303_ENABLES_SETTINGS(2),
 				  IVM6303_DSP_MASK,
 				  en ? IVM6303_DSP_MASK : 0);
-}
-
-static int _do_mute(struct ivm6303_priv *priv, int mute)
-{
-	int doit, ret;
-
-	doit = mute != priv->muted ||
-		test_and_clear_bit(DEFERRED_MUTE, &priv->flags);
-	if (!doit)
-		return 0;
-	if (mute) {
-		if (test_bit(SPEAKER_ENABLED, &priv->flags)) {
-			ret = regmap_read(priv->regmap, IVM6303_VOLUME,
-					  &priv->saved_volume);
-			if (ret < 0)
-				goto err;
-		}
-		ret = regmap_write(priv->regmap, IVM6303_VOLUME, 0);
-	} else
-		ret = regmap_write(priv->regmap, IVM6303_VOLUME,
-				   priv->saved_volume);
-err:
-	if (ret >= 0 && doit)
-		priv->muted = mute;
-	return ret;
-}
-
-static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
-{
-	struct ivm6303_fw_section *section = en ?
-		&priv->fw_sections[IVM6303_STREAM_START]:
-		&priv->fw_sections[IVM6303_STREAM_STOP];
-
-	if (!en) {
-		_do_mute(priv, 1);
-		msleep(100);
-	}
-
-	if (en && needs_autocal(priv))
-		pr_err("AUTOCAL NEEDED FOR THIS DEVICE, BUT DRIVER DOES NOT SUPPORT IT ANYMORE\n");
-
-	_run_fw_section(priv, section);
-
-	if (en)
-		_do_mute(priv, priv->muted);
 }
 
 static void _turn_speaker_on(struct ivm6303_priv *priv)
