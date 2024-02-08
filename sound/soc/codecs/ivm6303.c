@@ -1191,8 +1191,6 @@ err:
 
 static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 {
-	unsigned int v;
-	int stat;
 	struct ivm6303_fw_section *section = en ?
 		&priv->fw_sections[IVM6303_STREAM_START]:
 		&priv->fw_sections[IVM6303_STREAM_STOP];
@@ -1207,29 +1205,27 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 
 	_run_fw_section(priv, section);
 
+	if (en)
+		_do_mute(priv, priv->muted);
+}
+
+static void _turn_speaker_on(struct ivm6303_priv *priv)
+{
+	int stat;
+
+	_set_speaker_enable(priv, 1);
 	if (test_and_clear_bit(WAITING_FOR_VSIS_ON, &priv->flags)) {
 		stat = _set_vsis_en(priv, VIS_DIG_EN_MASK, 1);
 		if (stat < 0)
 			pr_err("Error reading VsIs enable bits\n");
 	}
-
-	if (en) {
-		_do_mute(priv, priv->muted);
-		set_bit(SPEAKER_ENABLED, &priv->flags);
-	} else
-		clear_bit(SPEAKER_ENABLED, &priv->flags);
-	/* TEMPORARY: switch back to page 0, by dummy reading a volatile reg */
-	regmap_read(priv->regmap, IVM6303_STATUS(1), &v);
-}
-
-static void _turn_speaker_on(struct ivm6303_priv *priv)
-{
-	_set_speaker_enable(priv, 1);
+	set_bit(SPEAKER_ENABLED, &priv->flags);
 }
 
 static void _turn_speaker_off(struct ivm6303_priv *priv)
 {
 	_set_speaker_enable(priv, 0);
+	clear_bit(SPEAKER_ENABLED, &priv->flags);
 }
 
 /* Assumes regmap mutex taken */
