@@ -955,6 +955,11 @@ static inline int is_udelay(u16 w)
 	return (w & 0xf000) == 0x4000;
 }
 
+static inline int is_fwabi(u16 w)
+{
+	return (w & 0xf000) == 0x5000;
+}
+
 static inline unsigned int to_addr(u16 w)
 {
 	return w & ~0xf000;
@@ -975,6 +980,11 @@ static inline unsigned int to_udelay(u16 w)
 static inline unsigned int to_mdelay(u16 w)
 {
 	return (w & ~0xf000) * 1000U;
+}
+
+static inline unsigned int to_fwabi(u16 w)
+{
+	return w & ~0xf000;
 }
 
 #define MAX_FW_FILENAME_LEN 256
@@ -1027,6 +1037,7 @@ static int load_fw(struct snd_soc_component *component)
 	const struct firmware *fw;
 	int ret, i;
 	int eof_record;
+	unsigned int fw_abi;
 	u16 *w;
 	unsigned int addr = ADDR_INVALID, val = VAL_INVALID, pg = 0,
 		section = IVM6303_PROBE_WRITES, reg_index = 0, delay_us = 0;
@@ -1071,8 +1082,13 @@ static int load_fw(struct snd_soc_component *component)
 	if (ret < 0)
 		return ret;
 	dev_dbg(component->dev, "firmware size = %ld\n", fw->size);
-	for (w = (u16 *)fw->data, i =0, eof_record = -1;
+	for (w = (u16 *)fw->data, i =0, eof_record = -1, fw_abi = 0;
 	     i < (fw->size / 2) && eof_record < 0; w++, i++) {
+		if (is_fwabi(*w)) {
+			fw_abi = to_fwabi(*w);
+			dev_info(component->dev,
+				 "found firmware abi 0x%08x\n", fw_abi);
+		}
 		if (is_file_end(*w)) {
 			eof_record = i;
 			break;
