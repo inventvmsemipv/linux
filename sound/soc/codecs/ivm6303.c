@@ -383,46 +383,6 @@ static int run_fw_section_sync(struct snd_soc_component *component, int s)
 	return ret;
 }
 
-/* handle deferred Vs enable */
-
-/*
- * Assumes regmap lock taken
- * Saves current status of bit IVM6303_ENABLES_SETTINGS(5).SPK_EN
- * and sets it to 0
- */
-static int _save_and_switch_speaker_off(struct snd_soc_component *component,
-					unsigned int *v)
-{
-	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
-	int ret;
-
-	ret = regmap_read(priv->regmap, IVM6303_ENABLES_SETTINGS(5), v);
-	if (ret < 0) {
-		dev_err(component->dev, "error reading speaker status");
-		return ret;
-	}
-	ret = regmap_write(priv->regmap, IVM6303_ENABLES_SETTINGS(5),
-			   (*v) & ~SPK_EN);
-	if (ret < 0)
-		dev_err(component->dev, "error turning speaker off");
-	return ret;
-}
-
-/*
- * Assumes regmap lock taken
- * Restore IVM6303_ENABLES_SETTINGS(5) register
- */
-static void _restore_enables_status(struct snd_soc_component *component,
-				    unsigned int v)
-{
-	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
-	int stat;
-
-	stat = regmap_write(priv->regmap, IVM6303_ENABLES_SETTINGS(5), v);
-	if (stat < 0)
-		dev_err(component->dev, "error restoring enables status");
-}
-
 static int _get_vsis_en(struct ivm6303_priv *priv, unsigned int *v)
 {
 	struct device *dev = &priv->i2c_client->dev;
@@ -523,8 +483,8 @@ static int playback_mode_control_put(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_component *c = snd_soc_dapm_kcontrol_component(kcontrol);
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(c);
-	int ret;
-	unsigned int spkstat;
+	int ret, vsis_error;
+	unsigned int v;
 
 	switch(ucontrol->value.integer.value[0]) {
 	case 0:
@@ -538,12 +498,32 @@ static int playback_mode_control_put(struct snd_kcontrol *kcontrol,
 	}
 	/* We have to turn off the output before mode changing */
 	mutex_lock(&priv->regmap_mutex);
-	ret = _save_and_switch_speaker_off(c, &spkstat);
-	if (ret)
-		goto err;
+	if (test_bit(SPEAKER_ENABLED, &priv->flags)) {
+		/* Save Vs/Is enable status, the off sequence could touch it */
+		vsis_error = _get_vsis_en(priv, &v);
+		if (vsis_error)
+			dev_err(c->dev, "error saving vs/is enable state\n");
+		_set_speaker_enable(priv, 0);
+	}
 	ret = _run_fw_section_sync(c, priv->playback_mode_fw_section);
-	_restore_enables_status(c, spkstat);
-err:
+	if (test_bit(SPEAKER_ENABLED, &priv->flags)) {
+		_set_speaker_enable(priv, 1);
+		if (!vsis_error) {
+			int stat;
+
+			/* Restore Vs/Is enable status */
+			stat = _set_vsis_en(priv, !!(v & VIS_DIG_EN_V),
+					    VIS_DIG_EN_V);
+			if (stat)
+				dev_err(c->dev,
+					"error restoring Vs enable state\n");
+			stat = _set_vsis_en(priv, !!(v & VIS_DIG_EN_I),
+					    VIS_DIG_EN_I);
+			if (stat)
+				dev_err(c->dev,
+					"error restoring Is enable state\n");
+		}
+	}
 	mutex_unlock(&priv->regmap_mutex);
 	return ret;
 }
