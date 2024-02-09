@@ -1170,6 +1170,10 @@ static int load_fw(struct snd_soc_component *component)
 				addr = ADDR_INVALID;
 				val = VAL_INVALID;
 				op = IVM6303_REG_WRITE;
+				/*
+				 * Sections always assume we start from page 0
+				 */
+				pg = 0;
 				delay_us = 0;
 				reg_index = 0;
 			}
