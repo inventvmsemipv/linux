@@ -479,6 +479,7 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 	struct ivm6303_fw_section *section = en ?
 		&priv->fw_sections[IVM6303_STREAM_START]:
 		&priv->fw_sections[IVM6303_STREAM_STOP];
+	struct device *dev = &priv->i2c_client->dev;
 
 	if (!en) {
 		_do_mute(priv, 1);
@@ -486,7 +487,7 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 	}
 
 	if (en && needs_autocal(priv))
-		pr_err("AUTOCAL NEEDED FOR THIS DEVICE, BUT DRIVER DOES NOT SUPPORT IT ANYMORE\n");
+		dev_err(dev, "AUTOCAL NEEDED FOR THIS DEVICE, BUT DRIVER DOES NOT SUPPORT IT ANYMORE\n");
 
 	_run_fw_section(priv, section);
 
@@ -1286,12 +1287,13 @@ static int _set_dsp_enable(struct ivm6303_priv *priv, int en)
 static void _turn_speaker_on(struct ivm6303_priv *priv)
 {
 	int stat;
+	struct device *dev = &priv->i2c_client->dev;
 
 	_set_speaker_enable(priv, 1);
 	if (test_and_clear_bit(WAITING_FOR_VSIS_ON, &priv->flags)) {
 		stat = _set_vsis_en(priv, VIS_DIG_EN_MASK, 1);
 		if (stat < 0)
-			pr_err("Error reading VsIs enable bits\n");
+			dev_err(dev, "Error reading VsIs enable bits\n");
 	}
 	set_bit(SPEAKER_ENABLED, &priv->flags);
 }
