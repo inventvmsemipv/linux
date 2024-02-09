@@ -22,7 +22,14 @@
 
 #define IVM6303_SECTION_MAX_REGISTERS 512
 
+enum ivm6303_fw_op {
+	IVM6303_REG_WRITE = 0,
+	IVM6303_MASK_SET = 1,
+	IVM6303_MASK_CLR = 2,
+};
+
 struct ivm6303_register {
+	enum ivm6303_fw_op op;
 	u16 addr;
 	u16 val;
 	/* Delay after register write in usecs */

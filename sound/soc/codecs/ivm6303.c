@@ -280,6 +280,22 @@ static int check_fw_abi(unsigned int abi)
 	return abi >= OLDEST_FW_ABI ? 0 : -1;
 }
 
+static const char *ivm6303_fw_op_to_str(enum ivm6303_fw_op o)
+{
+	switch(o) {
+	case IVM6303_REG_WRITE:
+		return "wr";
+	case IVM6303_MASK_SET:
+		return "mset";
+	case IVM6303_MASK_CLR:
+		return "mclr";
+	default:
+		return "UNK";
+	}
+	/* NEVER REACHED */
+	return "UNK";
+}
+
 /*
  * Assumes regmap mutex taken
  */
@@ -297,13 +313,27 @@ static int _do_regs_assign_seq(struct ivm6303_priv *priv,
 			ret = -ENOMEM;
 			break;
 		}
-		ret = regmap_write(priv->regmap, r->addr, r->val);
+		switch (r->op) {
+		case IVM6303_REG_WRITE:
+			ret = regmap_write(priv->regmap, r->addr, r->val);
+			break;
+		case IVM6303_MASK_SET:
+			ret = regmap_update_bits(priv->regmap, r->addr,
+						 r->val, r->val);
+			break;
+		case IVM6303_MASK_CLR:
+			ret = regmap_update_bits(priv->regmap, r->addr,
+						 r->val, ~r->val);
+			break;
+		}
 		if (ret < 0) {
-			dev_err(dev, "error writing to register %u", r->addr);
+			dev_err(dev, "error: op %s, reg %u, val = %u",
+				ivm6303_fw_op_to_str(r->op), r->addr, r->val);
 			break;
 		}
 		if ((r->addr == IVM6303_SOFTWARE_RESET) &&
-		    (r->val & RESET))
+		    (r->val & RESET) &&
+		    (r->op == IVM6303_REG_WRITE || r->op == IVM6303_MASK_SET))
 			/* Doing reset, invalidate cache */
 			regcache_drop_region(priv->regmap, 0, IVM6303_LAST_REG);
 		if (r->delay_us) {
@@ -967,6 +997,16 @@ static inline int is_fwabi(u16 w)
 	return (w & 0xf000) == 0x5000;
 }
 
+static inline int is_mask_set_addr(u16 w)
+{
+	return (w & 0xf000) == 0x6000;
+}
+
+static inline int is_mask_clr_addr(u16 w)
+{
+	return (w & 0xf000) == 0x7000;
+}
+
 static inline unsigned int to_addr(u16 w)
 {
 	return w & ~0xf000;
@@ -1047,7 +1087,8 @@ static int load_fw(struct snd_soc_component *component)
 	unsigned int fw_abi;
 	u16 *w;
 	unsigned int addr = ADDR_INVALID, val = VAL_INVALID, pg = 0,
-		section = IVM6303_PROBE_WRITES, reg_index = 0, delay_us = 0;
+		section = IVM6303_PROBE_WRITES, reg_index = 0, delay_us = 0,
+		op = WRITE;
 	static char fw_file_name[MAX_FW_FILENAME_LEN];
 
 	/*
@@ -1104,8 +1145,18 @@ static int load_fw(struct snd_soc_component *component)
 			delay_us += to_mdelay(*w);
 		if (is_udelay(*w))
 			delay_us += to_udelay(*w);
-		if (is_addr(*w))
+		if (is_mask_set_addr(*w)) {
 			addr = to_addr(*w);
+			op = IVM6303_MASK_SET;
+		}
+		if (is_mask_clr_addr(*w)) {
+			addr = to_addr(*w);
+			op = IVM6303_MASK_CLR;
+		}
+		if (is_addr(*w)) {
+			addr = to_addr(*w);
+			op = IVM6303_REG_WRITE;
+		}
 		if (is_val(*w))
 			val = to_val(*w);
 		if (is_new_section(*w)) {
@@ -1117,6 +1168,7 @@ static int load_fw(struct snd_soc_component *component)
 				/* Start new section from scratch */
 				addr = ADDR_INVALID;
 				val = VAL_INVALID;
+				op = IVM6303_REG_WRITE;
 				delay_us = 0;
 				reg_index = 0;
 			}
@@ -1135,6 +1187,7 @@ static int load_fw(struct snd_soc_component *component)
 			r->addr = addr | pg;
 			r->val = val;
 			r->delay_us = delay_us;
+			r->op = op;
 			priv->fw_sections[section].nsteps++;
 			addr = ADDR_INVALID;
 			val = VAL_INVALID;
