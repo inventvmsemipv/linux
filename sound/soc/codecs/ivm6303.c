@@ -446,12 +446,8 @@ static int _set_vsis_en(struct ivm6303_priv *priv, int mask, int on)
 
 static int _do_mute(struct ivm6303_priv *priv, int mute)
 {
-	int doit, ret;
+	int ret;
 
-	doit = mute != priv->muted ||
-		test_and_clear_bit(DEFERRED_MUTE, &priv->flags);
-	if (!doit)
-		return 0;
 	if (mute) {
 		if (test_bit(SPEAKER_ENABLED, &priv->flags)) {
 			ret = regmap_read(priv->regmap, IVM6303_VOLUME,
@@ -464,8 +460,6 @@ static int _do_mute(struct ivm6303_priv *priv, int mute)
 		ret = regmap_write(priv->regmap, IVM6303_VOLUME,
 				   priv->saved_volume);
 err:
-	if (ret >= 0 && doit)
-		priv->muted = mute;
 	return ret;
 }
 
@@ -2614,15 +2608,10 @@ static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 
 	mutex_lock(&priv->regmap_mutex);
 	ret = _do_power_up(priv);
-	if (!test_bit(SPEAKER_ENABLED, &priv->flags)) {
-		/*
-		 * Actual mute status will be resynced when speaker is turned
-		 * on
-		 */
-		priv->muted = mute;
-		set_bit(DEFERRED_MUTE, &priv->flags);
-	} else
+	if (test_bit(SPEAKER_ENABLED, &priv->flags))
 		ret = _do_mute(priv, mute);
+	/* Mute status will be resynced on next speaker on */
+	priv->muted = mute;
 	ret = _resync_power_state(component);
 	if (ret)
 		dev_err(component->dev, "error resyncing power state\n");

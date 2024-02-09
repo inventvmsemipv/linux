@@ -101,7 +101,6 @@ struct ivm6303_priv {
 #define WAITING_FOR_SPEAKER_OFF 1
 #define WAITING_FOR_SPEAKER_ON 2
 #define SPEAKER_ENABLED 3
-#define DEFERRED_MUTE 4
 #define WAITING_FOR_VSIS_ON 5
 	unsigned long		flags;
 	unsigned int		saved_volume;
