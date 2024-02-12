@@ -156,12 +156,8 @@
 #define IVM6303_SAR_SETTINGS(x)		(((x) - 1) + 0xd0)
 
 #define IVM6303_CAL_SETTINGS(x)		((x - 1) + 0xe0)
-/* IVM6303_CAL_SETTINGS(3) */
-# define CAL_AZ_EN			 BIT(2)
-# define CAL_MODE_INTFB_ONLY_2MEAS	 BIT(4)
-# define CAL_MODE_INTFB_ONLY_1MEAS	(3 << 4)
-
-#define IVM6303_CAL_STATUS(x)		((x - 1) + 0xea)
+/* IVM6303_CAL_SETTINGS(6) */
+# define HW_OFFSET_CAL			BIT(0)
 
 #define IVM6303_CLIPPING_RANGE_START	0xf0
 #define IVM6303_CLIPPING_RANGE_END	0xf7
@@ -1758,10 +1754,6 @@ static bool ivm6303_writeable_register(struct device *dev,
 	    reg <= IVM6303_MEAS_RANGE_END)
 		return false;
 
-	if (reg >= IVM6303_CAL_STATUS(1) &&
-	    reg <= IVM6303_CAL_STATUS(6))
-		return false;
-
 	if (reg >= IVM6303_SP_READ_RANGE_START &&
 	    reg <= IVM6303_SP_READ_RANGE_END)
 		return false;
@@ -1807,10 +1799,6 @@ static bool ivm6303_volatile_register(struct device *dev, unsigned int reg)
 
 	if (reg >= IVM6303_CLIPPING_RANGE_START &&
 	    reg <= IVM6303_CLIPPING_RANGE_END)
-		return true;
-
-	if (reg >= IVM6303_CAL_STATUS(1) &&
-	    reg <= IVM6303_CAL_STATUS(6))
 		return true;
 
 	if (reg >= IVM6303_SP_RANGE_START &&
