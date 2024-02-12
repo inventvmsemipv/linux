@@ -468,20 +468,91 @@ static inline int needs_autocal(struct ivm6303_priv *priv)
 	return priv->quirks->needs_autocal;
 }
 
+static inline int has_working_hw_autocal(struct ivm6303_priv *priv)
+{
+	return priv->quirks->has_working_hw_autocal;
+}
+
+#define HW_AUTOCAL_ATTEMPTS 50
+
+static int _do_hw_autocal(struct ivm6303_priv *priv)
+{
+	int ret, stat, attempts;
+	unsigned int vs_is_enabled, v;
+	struct device *dev = &priv->i2c_client->dev;
+
+	/* Save Vs/Is enabled state */
+	ret = _get_vsis_en(priv, &vs_is_enabled);
+	if (ret) {
+		dev_err(dev, "%s: cannot get current vs/is enabled state\n",
+			__func__);
+		goto err;
+	}
+	/* Enable Vs only for hw autocal */
+	ret = _set_vsis_en(priv, VIS_DIG_EN_MASK, VIS_DIG_EN_V);
+	if (ret) {
+		dev_err(dev, "%s: cannot enable vs\n", __func__);
+		goto err;
+	}
+	usleep_range(2000, 5000);
+	/*
+	 * Start hw autocal and wait for it to end (HW_OFFSET_CALL bit is
+	 * turned off.
+	 * This should take some ms typical, but we set a long timeout
+	 */
+	ret = regmap_update_bits(priv->regmap, IVM6303_CAL_SETTINGS(6),
+				 HW_OFFSET_CAL, HW_OFFSET_CAL);
+	if (ret) {
+		dev_err(dev, "%s: cannot start", __func__);
+		goto done;
+	}
+
+	dev_dbg(dev, "HW autocal started\n");
+	for (attempts = 0, ret = -ETIMEDOUT;
+	     attempts < HW_AUTOCAL_ATTEMPTS && ret; attempts++) {
+		usleep_range(1000, 5000);
+		stat = regmap_read(priv->regmap, IVM6303_CAL_SETTINGS(6), &v);
+		if (!stat && !(v & HW_OFFSET_CAL)) {
+			dev_dbg(dev, "HW autocal done\n");
+			ret = 0;
+		}
+	}
+	if (attempts >= HW_AUTOCAL_ATTEMPTS)
+		dev_err(dev, "HW AUTOCAL TIMEOUT !\n");
+done:
+	stat = _set_vsis_en(priv, VIS_DIG_EN_MASK, vs_is_enabled);
+	if (stat) {
+		dev_err(dev, "%s: error %d restoring vs/is enable\n",
+			__func__, ret);
+		if (!ret)
+			ret = stat;
+	}
+err:
+	return ret;
+}
+
 static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 {
 	struct ivm6303_fw_section *section = en ?
 		&priv->fw_sections[IVM6303_STREAM_START]:
 		&priv->fw_sections[IVM6303_STREAM_STOP];
 	struct device *dev = &priv->i2c_client->dev;
+	int stat;
 
 	if (!en) {
 		_do_mute(priv, 1);
 		msleep(100);
 	}
 
-	if (en && needs_autocal(priv))
-		dev_err(dev, "AUTOCAL NEEDED FOR THIS DEVICE, BUT DRIVER DOES NOT SUPPORT IT ANYMORE\n");
+	if (en && !priv->autocal_done && needs_autocal(priv)) {
+		if (!has_working_hw_autocal(priv)) {
+			dev_err(dev, "AUTOCAL NEEDED, BUT NO HW AUTOCAL IS AVAILABLE AND DRIVER DOES NOT SUPPORT SW AUTOCAL ANYMORE\n");
+		} else {
+			stat = _do_hw_autocal(priv);
+			if (!stat)
+				priv->autocal_done = 1;
+		}
+	}
 
 	_run_fw_section(priv, section);
 
@@ -803,9 +874,18 @@ static const struct snd_soc_dapm_route ivm6303_dapm_routes[] = {
 #define REV_OFFSET(r) ((r) - REV_BASE)
 
 static const struct ivm6303_quirks quirks[] = {
-	[REV_OFFSET(0xf9)] = { .needs_autocal = 1, },
-	[REV_OFFSET(0xfa)] = { .needs_autocal = 1, },
-	[REV_OFFSET(0xfc)] = { .needs_autocal = 0, },
+	[REV_OFFSET(0xf9)] = {
+		.needs_autocal = 1,
+		.has_working_hw_autocal = 0,
+	},
+	[REV_OFFSET(0xfa)] = {
+		.needs_autocal = 1,
+		.has_working_hw_autocal = 0,
+	},
+	[REV_OFFSET(0xfc)] = {
+		.needs_autocal = 1,
+		.has_working_hw_autocal = 1,
+	},
 };
 
 #define QUIRKS(a) &quirks[REV_OFFSET(a)]
@@ -1629,7 +1709,7 @@ static void ivm6303_component_remove(struct snd_soc_component *component)
 	flush_workqueue(priv->wq);
 	destroy_workqueue(priv->wq);
 	priv->wq = NULL;
-	priv->flags = priv->muted = priv->capture_only = 0;
+	priv->flags = priv->muted = priv->capture_only = priv->autocal_done = 0;
 	priv->tdm_settings_1 = -1;
 	atomic_set(&priv->clk_status, 0);
 	unload_fw(component);
