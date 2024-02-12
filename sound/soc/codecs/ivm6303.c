@@ -333,9 +333,12 @@ static int _do_regs_assign_seq(struct ivm6303_priv *priv,
 			/* Doing reset, invalidate cache */
 			regcache_drop_region(priv->regmap, 0, IVM6303_LAST_REG);
 		if (r->delay_us) {
-			if (r->delay_us > 1000)
-				mdelay(r->delay_us / 1000);
-			udelay(r->delay_us % 1000);
+			if (r->delay_us < 20)
+				udelay(r->delay_us);
+			else if (r->delay_us <= 20000)
+				usleep_range(r->delay_us, r->delay_us * 2);
+			else
+				msleep(r->delay_us / 1000);
 		}
 	}
 	return ret;
@@ -1245,7 +1248,7 @@ static void _post_tdm_apply_hack(struct ivm6303_priv *priv)
 	stat = regmap_write(priv->regmap, IVM6303_TDM_SETTINGS(1), 0x70);
 	if (stat < 0)
 		dev_err(dev, "error writing dummy tdm settings 1\n");
-	msleep(1);
+	usleep_range(1000, 5000);
 	stat = regmap_write(priv->regmap, IVM6303_TDM_SETTINGS(1), v);
 	if (stat < 0)
 		dev_err(dev, "error writing final tdm settings 1\n");
@@ -1261,7 +1264,7 @@ static void _do_tdm_apply(struct ivm6303_priv *priv)
 				  DO_APPLY_CONF, DO_APPLY_CONF);
 	if (stat < 0)
 		dev_err(dev, "%s: could not apply TDM conf", __func__);
-	msleep(1);
+	usleep_range(1000, 5000);
 	_post_tdm_apply_hack(priv);
 }
 
