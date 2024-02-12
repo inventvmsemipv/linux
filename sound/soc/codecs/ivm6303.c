@@ -566,6 +566,14 @@ static const struct snd_kcontrol_new playback_mode_control[] = {
 		       playback_mode_control_put),
 };
 
+static int _set_dsp_enable(struct ivm6303_priv *priv, int en)
+{
+	return regmap_update_bits(priv->regmap,
+				  IVM6303_ENABLES_SETTINGS(2),
+				  IVM6303_DSP_MASK,
+				  en ? IVM6303_DSP_MASK : 0);
+}
+
 static int start_pll_polling(struct ivm6303_priv *priv)
 {
 	int olds;
@@ -612,6 +620,7 @@ static int playback_mode_event(struct snd_soc_dapm_widget *w,
 		atomic_set(&priv->clk_status, STOPPED);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
+		ret = _set_dsp_enable(priv, 0);
 		break;
 	default:
 		dev_err(component->dev, "%s: unexpected event %d\n",
@@ -1274,14 +1283,6 @@ static int _set_references_enable(struct ivm6303_priv *priv, int en)
 				  en ? IVM6303_REFS_MASK : 0);
 }
 
-static int _set_dsp_enable(struct ivm6303_priv *priv, int en)
-{
-	return regmap_update_bits(priv->regmap,
-				  IVM6303_ENABLES_SETTINGS(2),
-				  IVM6303_DSP_MASK,
-				  en ? IVM6303_DSP_MASK : 0);
-}
-
 static void _turn_speaker_on(struct ivm6303_priv *priv)
 {
 	int stat;
@@ -1335,7 +1336,7 @@ static void _pll_locked_handler(struct ivm6303_priv *priv)
 {
 	struct device *dev = &priv->i2c_client->dev;
 	unsigned int status;
-	int olds;
+	int olds, stat;
 
 	regmap_read(priv->regmap, IVM6303_STATUS(1), &status);
 	if (!(status & CLK_MON_OK)) {
@@ -1375,9 +1376,13 @@ static void _pll_locked_handler(struct ivm6303_priv *priv)
 		priv->tdm_apply_needed = 0;
 	}
 	_set_references_enable(priv, 1);
-	_set_dsp_enable(priv, 1);
-	if (test_and_clear_bit(WAITING_FOR_SPEAKER_ON, &priv->flags))
+	if (test_and_clear_bit(WAITING_FOR_SPEAKER_ON, &priv->flags)) {
+		stat = _set_dsp_enable(priv, 1);
+		if (stat)
+			dev_err(dev, "%s: error turning dsp on\n", __func__);
 		_turn_speaker_on(priv);
+
+	}
 }
 
 static void pll_locked_handler(struct work_struct * work)
@@ -1555,10 +1560,6 @@ static int ivm6303_set_bias_level(struct snd_soc_component *component,
 			ret = _set_references_enable(priv, 0);
 			if (ret < 0)
 				dev_err(dev, "%s: error disabling references\n",
-					__func__);
-			ret = _set_dsp_enable(priv, 0);
-			if (ret < 0)
-				dev_err(dev, "%s: error disabling DSP\n",
 					__func__);
 		}
 		break;
