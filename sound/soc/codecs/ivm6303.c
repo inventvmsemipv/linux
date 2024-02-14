@@ -2865,11 +2865,20 @@ static const struct i2c_device_id ivm6303_id[] = {
 
 MODULE_DEVICE_TABLE(i2c, ivm6303_id);
 
+#ifdef CONFIG_ACPI
+static const struct acpi_device_id ivm6303_acpi_match[] = {
+	{ "IVM6303", 0 },
+	{ },
+};
+MODULE_DEVICE_TABLE(acpi, ivm6303_acpi_match);
+#endif
+
 static struct i2c_driver ivm6303_i2c_driver = {
 	.driver = {
 		.name		= "ivm6303-amp",
 		.owner		= THIS_MODULE,
 		.of_match_table = ivm6303_match_table,
+		.acpi_match_table = ACPI_PTR(ivm6303_acpi_match),
 	},
 	.probe		= ivm6303_probe,
 	.remove		= ivm6303_remove,
