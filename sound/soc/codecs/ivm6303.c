@@ -473,61 +473,16 @@ static inline int has_working_hw_autocal(struct ivm6303_priv *priv)
 	return priv->quirks->has_working_hw_autocal;
 }
 
-#define HW_AUTOCAL_ATTEMPTS 50
-
 static int _do_hw_autocal(struct ivm6303_priv *priv)
 {
-	int ret, stat, attempts;
-	unsigned int vs_is_enabled, v;
 	struct device *dev = &priv->i2c_client->dev;
+	struct ivm6303_fw_section *section =
+		&priv->fw_sections[IVM6303_HW_AUTOCAL];
+	int ret;
 
-	/* Save Vs/Is enabled state */
-	ret = _get_vsis_en(priv, &vs_is_enabled);
-	if (ret) {
-		dev_err(dev, "%s: cannot get current vs/is enabled state\n",
-			__func__);
-		goto err;
-	}
-	/* Enable Vs only for hw autocal */
-	ret = _set_vsis_en(priv, VIS_DIG_EN_MASK, VIS_DIG_EN_V);
-	if (ret) {
-		dev_err(dev, "%s: cannot enable vs\n", __func__);
-		goto err;
-	}
-	usleep_range(2000, 5000);
-	/*
-	 * Start hw autocal and wait for it to end (HW_OFFSET_CALL bit is
-	 * turned off.
-	 * This should take some ms typical, but we set a long timeout
-	 */
-	ret = regmap_update_bits(priv->regmap, IVM6303_CAL_SETTINGS(6),
-				 HW_OFFSET_CAL, HW_OFFSET_CAL);
-	if (ret) {
-		dev_err(dev, "%s: cannot start", __func__);
-		goto done;
-	}
-
-	dev_dbg(dev, "HW autocal started\n");
-	for (attempts = 0, ret = -ETIMEDOUT;
-	     attempts < HW_AUTOCAL_ATTEMPTS && ret; attempts++) {
-		usleep_range(1000, 5000);
-		stat = regmap_read(priv->regmap, IVM6303_CAL_SETTINGS(6), &v);
-		if (!stat && !(v & HW_OFFSET_CAL)) {
-			dev_dbg(dev, "HW autocal done\n");
-			ret = 0;
-		}
-	}
-	if (attempts >= HW_AUTOCAL_ATTEMPTS)
-		dev_err(dev, "HW AUTOCAL TIMEOUT !\n");
-done:
-	stat = _set_vsis_en(priv, VIS_DIG_EN_MASK, vs_is_enabled);
-	if (stat) {
-		dev_err(dev, "%s: error %d restoring vs/is enable\n",
-			__func__, ret);
-		if (!ret)
-			ret = stat;
-	}
-err:
+	ret = _run_fw_section(priv, section);
+	if (ret)
+		dev_err(dev, "error running hw autocal fw section\n");
 	return ret;
 }
 
@@ -548,9 +503,12 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 		if (!has_working_hw_autocal(priv)) {
 			dev_err(dev, "AUTOCAL NEEDED, BUT NO HW AUTOCAL IS AVAILABLE AND DRIVER DOES NOT SUPPORT SW AUTOCAL ANYMORE\n");
 		} else {
+			dev_dbg(dev, "START HW AUTOCAL\n");
 			stat = _do_hw_autocal(priv);
-			if (!stat)
+			if (!stat) {
+				dev_dbg(dev, "HW AUTOCAL DONE\n");
 				priv->autocal_done = 1;
+			}
 		}
 	}
 
