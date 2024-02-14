@@ -303,12 +303,15 @@ static int _do_regs_assign_seq(struct ivm6303_priv *priv,
 	struct ivm6303_register *r;
 	int i, ret = 0;
 
+	dev_dbg(dev, "%s starting sequence with %d steps\n", __func__, nsteps);
 	for (i = 0, r = regs; i < nsteps; i++, r++) {
 		if (i >= IVM6303_SECTION_MAX_REGISTERS) {
 			dev_err(dev, "%s, too many registers\n", __func__);
 			ret = -ENOMEM;
 			break;
 		}
+		dev_dbg(dev, "%p, op = %s, addr = %3x, val = %2x\n",
+			r, ivm6303_fw_op_to_str(r->op), r->addr, r->val);
 		switch (r->op) {
 		case IVM6303_REG_WRITE:
 			ret = regmap_write(priv->regmap, r->addr, r->val);
@@ -341,6 +344,7 @@ static int _do_regs_assign_seq(struct ivm6303_priv *priv,
 				msleep(r->delay_us / 1000);
 		}
 	}
+	dev_dbg(dev, "%s: sequence done, ret = %d\n", __func__, ret);
 	return ret;
 }
 
@@ -1196,6 +1200,7 @@ static int load_fw(struct snd_soc_component *component)
 			val = to_val(*w);
 		if (is_new_section(*w)) {
 			section = to_val(*w);
+			dev_dbg(component->dev, "new section %d\n", section);
 			if (section > IVM6303_PROBE_WRITES) {
 				ret = alloc_fw_section(component, section);
 				if (ret < 0)
@@ -1227,6 +1232,9 @@ static int load_fw(struct snd_soc_component *component)
 			r->val = val;
 			r->delay_us = delay_us;
 			r->op = op;
+			dev_dbg(component->dev,
+				"new op: %p, %s, addr = %2x, val = %3x\n", r,
+				ivm6303_fw_op_to_str(r->op), r->addr, r->val);
 			priv->fw_sections[section].nsteps++;
 			addr = ADDR_INVALID;
 			val = VAL_INVALID;
