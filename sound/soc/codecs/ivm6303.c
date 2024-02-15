@@ -1639,8 +1639,8 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 		return ret;
 	priv->wq = create_singlethread_workqueue("ivm6303-wq");
 	if (!priv->wq) {
-		unload_fw(component);
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto err;
 	}
 	INIT_DELAYED_WORK(&priv->pll_locked_work, pll_locked_handler);
 	INIT_WORK(&priv->fw_exec_work, fw_exec_handler);
@@ -1648,20 +1648,27 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 	INIT_DELAYED_WORK(&priv->vsis_enable_work, vsis_enable_handler);
 	ret = run_fw_section_sync(component, IVM6303_PROBE_WRITES);
 	if (ret < 0)
-		return ret;
+		goto err;
 	ivm6303_init_debugfs(component);
 	mutex_lock(&priv->regmap_mutex);
 	/* Power up */
 	ret = _do_power_up(priv);
 	/* Initialize volume */
 	ret = regmap_read(priv->regmap, IVM6303_VOLUME, &priv->saved_volume);
-	if (ret)
+	if (ret) {
 		dev_err(component->dev, "error reading initial volume\n");
+		mutex_unlock(&priv->regmap_mutex);
+		goto err;
+	}
 	/* Switch off power */
 	ret = _resync_power_state(component);
 	if (ret)
 		dev_err(component->dev, "error syncing power state\n");
 	mutex_unlock(&priv->regmap_mutex);
+	return ret;
+
+err:
+	unload_fw(component);
 	return ret;
 }
 
