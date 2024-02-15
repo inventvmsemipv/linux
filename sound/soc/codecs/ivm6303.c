@@ -166,6 +166,8 @@
 #define IVM6303_PAD_SETTINGS		0xfc
 
 #define IVM6303_PAGE_SELECTION		0xfe
+# define IVM6303_PAGE_MASK		0x03
+
 #define IVM6303_HW_REV			0xff
 
 #define IVM6303_IO_TEST_SETTINGS(x)	(((x) - 1) + 0x100)
@@ -226,6 +228,8 @@
 #define IVM6303_GAIN_OFFS_INTFB_COMP(n)	((n) + 0x1db)
 
 #define IVM6303_TEST_DEVICE_INFO	0x1ff
+
+#define IVM6303_LAST_REG		0x3ff
 
 #define IVM6303_FORMATS (SNDRV_PCM_FMTBIT_S16_LE |	\
 			 SNDRV_PCM_FMTBIT_S24_LE |	\
@@ -294,7 +298,7 @@ static int _do_regs_assign_seq(struct ivm6303_priv *priv,
 		if ((r->addr == IVM6303_SOFTWARE_RESET) &&
 		    (r->val & RESET))
 			/* Doing reset, invalidate cache */
-			regcache_drop_region(priv->regmap, 0, 0x1ff);
+			regcache_drop_region(priv->regmap, 0, IVM6303_LAST_REG);
 		if (r->delay_us) {
 			if (r->delay_us > 1000)
 				mdelay(r->delay_us / 1000);
@@ -1013,7 +1017,7 @@ static int load_fw(struct snd_soc_component *component)
 			struct ivm6303_register *r;
 
 			if (addr == 254) {
-				pg = val ? 0x100 : 0x000;
+				pg = (val & IVM6303_PAGE_MASK) << 8;
 				addr = ADDR_INVALID;
 				val = VAL_INVALID;
 				continue;
@@ -1492,7 +1496,7 @@ static void ivm6303_component_remove(struct snd_soc_component *component)
 	priv->tdm_settings_1 = -1;
 	atomic_set(&priv->clk_status, 0);
 	unload_fw(component);
-	regcache_drop_region(priv->regmap, 0, 0x1ff);
+	regcache_drop_region(priv->regmap, 0, IVM6303_LAST_REG);
 }
 
 static const char *ch3_output_mux_texts[] = {
@@ -1586,10 +1590,10 @@ static struct snd_soc_component_driver soc_component_dev_ivm6303 = {
 static const struct regmap_range_cfg ivm6303_range_cfg[] = {
 	{
 		.range_min = IVM6303_SYSTEM_CTRL,
-		/* From 0x100 to 0x1ff: undocumented test registers */
-		.range_max = 0x1ff,
+		/* From 0x100 to 0x3ff: undocumented test registers */
+		.range_max = IVM6303_LAST_REG,
 		.selector_reg = IVM6303_PAGE_SELECTION,
-		.selector_mask = 1,
+		.selector_mask = IVM6303_PAGE_MASK,
 		.selector_shift = 0,
 		.window_start = 0,
 		.window_len = 256,
@@ -1598,7 +1602,7 @@ static const struct regmap_range_cfg ivm6303_range_cfg[] = {
 
 static bool ivm6303_readable_register(struct device *dev, unsigned int reg)
 {
-	return (reg <= 0x1ff);
+	return (reg <= IVM6303_LAST_REG);
 }
 
 static bool ivm6303_writeable_register(struct device *dev,
@@ -1646,7 +1650,7 @@ static bool ivm6303_writeable_register(struct device *dev,
 		return false;
 
 	}
-	return (reg <= 0x1ff);
+	return (reg <= IVM6303_LAST_REG);
 }
 
 static bool ivm6303_volatile_register(struct device *dev, unsigned int reg)
@@ -1717,7 +1721,7 @@ static const struct regmap_config regmap_config = {
 	.val_bits = 8,
 	.ranges = ivm6303_range_cfg,
 	.num_ranges = ARRAY_SIZE(ivm6303_range_cfg),
-	.max_register = 0x1ff,
+	.max_register = IVM6303_LAST_REG,
 	.readable_reg = ivm6303_readable_register,
 	.writeable_reg = ivm6303_writeable_register,
 	.volatile_reg = ivm6303_volatile_register,
