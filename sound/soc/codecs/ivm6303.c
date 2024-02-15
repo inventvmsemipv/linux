@@ -2829,6 +2829,7 @@ static int ivm6303_probe(struct i2c_client *client)
 	if (IS_ERR(priv->regmap)) {
 		ret = PTR_ERR(priv->regmap);
 		dev_err(&client->dev, "regmap init failed\n");
+		goto end;
 	}
 	priv->playback_mode_fw_section = IVM6303_SPEAKER_MODE;
 	init_completion(&priv->fw_section_completion);
