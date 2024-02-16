@@ -429,14 +429,15 @@ static int _get_vsis_en(struct ivm6303_priv *priv, unsigned int *v)
 	return ret;
 }
 
-static int _set_vsis_en(struct ivm6303_priv *priv, int mask, int on)
+/* Set/reset on bit(s) for Vs and/or Is */
+static int _set_vsis_en(struct ivm6303_priv *priv, int mask, int v)
 {
 	struct device *dev = &priv->i2c_client->dev;
 	int ret = regmap_update_bits(priv->regmap,
 				     IVM6303_VISENSE_SETTINGS(1),
-				     mask, on ? mask : 0);
+				     mask, v);
 	if (ret < 0)
-		dev_err(dev, "error turning Vs/Is %s\n", on ? "On" : "Off");
+		dev_err(dev, "error setting Vs/Is enable bits\n");
 	return ret;
 }
 
@@ -537,19 +538,11 @@ static int playback_mode_control_put(struct snd_kcontrol *kcontrol,
 	if (test_bit(SPEAKER_ENABLED, &priv->flags)) {
 		_set_speaker_enable(priv, 1);
 		if (!vsis_error) {
-			int stat;
-
 			/* Restore Vs/Is enable status */
-			stat = _set_vsis_en(priv, !!(v & VIS_DIG_EN_V),
-					    VIS_DIG_EN_V);
-			if (stat)
+			ret = _set_vsis_en(priv, VIS_DIG_EN_MASK, v);
+			if (ret)
 				dev_err(c->dev,
-					"error restoring Vs enable state\n");
-			stat = _set_vsis_en(priv, !!(v & VIS_DIG_EN_I),
-					    VIS_DIG_EN_I);
-			if (stat)
-				dev_err(c->dev,
-					"error restoring Is enable state\n");
+					"error restoring vs/is enable state\n");
 		}
 	}
 	mutex_unlock(&priv->regmap_mutex);
@@ -643,7 +636,7 @@ static void vsis_enable_handler(struct work_struct * work)
 	 * when playback is acive. The IS_DIG_EN_I bit is set when enabling
 	 * the speaker
 	 */
-	stat = _set_vsis_en(priv, VIS_DIG_EN_V, 1);
+	stat = _set_vsis_en(priv, VIS_DIG_EN_V, VIS_DIG_EN_V);
 	mutex_unlock(&priv->regmap_mutex);
 	if (stat)
 		dev_err(dev, "Error enabling Vs/Is");
@@ -690,7 +683,8 @@ static int adc_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *c,
 	if (!on || !deferred) {
 		clear_bit(WAITING_FOR_VSIS_ON, &priv->flags);
 		mutex_lock(&priv->regmap_mutex);
-		ret = _set_vsis_en(priv, VIS_DIG_EN_MASK, on);
+		ret = _set_vsis_en(priv, VIS_DIG_EN_MASK, on ?
+				   VIS_DIG_EN_MASK : 0);
 		mutex_unlock(&priv->regmap_mutex);
 	} else {
 		/*
@@ -1293,7 +1287,7 @@ static void _turn_speaker_on(struct ivm6303_priv *priv)
 	_set_speaker_enable(priv, 1);
 	if ((!stat && vsis_enabled) ||
 	    test_and_clear_bit(WAITING_FOR_VSIS_ON, &priv->flags)) {
-		stat = _set_vsis_en(priv, VIS_DIG_EN_MASK, 1);
+		stat = _set_vsis_en(priv, VIS_DIG_EN_MASK, VIS_DIG_EN_MASK);
 		if (stat < 0)
 			dev_err(dev, "Error writing VsIs enable bits\n");
 	}
@@ -1302,7 +1296,7 @@ static void _turn_speaker_on(struct ivm6303_priv *priv)
 
 static void _turn_speaker_off(struct ivm6303_priv *priv)
 {
-	int stat, on;
+	int stat;
 	unsigned int v;
 	struct device *dev = &priv->i2c_client->dev;
 
@@ -1321,8 +1315,7 @@ static void _turn_speaker_off(struct ivm6303_priv *priv)
 	 * Re-enable Vs only, if it was enabled beforehand.
 	 * Is does not work when the speaker is off
 	 */
-	on = !!(v & VIS_DIG_EN_V);
-	stat = _set_vsis_en(priv, VIS_DIG_EN_V, on);
+	stat = _set_vsis_en(priv, VIS_DIG_EN_MASK, v & VIS_DIG_EN_V);
 	if (stat)
 		dev_err(dev, "error restoring is enable status\n");
 }
