@@ -537,6 +537,19 @@ static int playback_mode_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+static int _get_vsis_en(struct ivm6303_priv *priv, unsigned int *v)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	int ret = regmap_read(priv->regmap, IVM6303_VISENSE_SETTINGS(1), v);
+
+	if (ret < 0) {
+		dev_err(dev, "error saving Vs/Is enable state\n");
+		return ret;
+	}
+	*v &= VIS_DIG_EN_MASK;
+	return ret;
+}
+
 static int _set_vsis_en(struct ivm6303_priv *priv, int mask, int on)
 {
 	struct device *dev = &priv->i2c_client->dev;
@@ -1224,8 +1237,29 @@ static void _turn_speaker_on(struct ivm6303_priv *priv)
 
 static void _turn_speaker_off(struct ivm6303_priv *priv)
 {
+	int stat, on;
+	unsigned int v;
+	struct device *dev = &priv->i2c_client->dev;
+
+	/*
+	 * Save current state of vs/is enable bits, the speaker off sequence
+	 * can touch them !
+	 */
+	stat = _get_vsis_en(priv, &v);
+	if (stat)
+		dev_err(dev, "error saving vs/is enable status\n");
 	_set_speaker_enable(priv, 0);
 	clear_bit(SPEAKER_ENABLED, &priv->flags);
+	if (stat)
+		return;
+	/*
+	 * Re-enable Vs only, if it was enabled beforehand.
+	 * Is does not work when the speaker is off
+	 */
+	on = !!(v & VIS_DIG_EN_V);
+	stat = _set_vsis_en(priv, VIS_DIG_EN_V, on);
+	if (stat)
+		dev_err(dev, "error restoring is enable status\n");
 }
 
 /* Assumes regmap mutex taken */
