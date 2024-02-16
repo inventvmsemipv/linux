@@ -848,12 +848,14 @@ static int cope_with_untrimmed(struct snd_soc_component *component)
 				 SEQ_OTP_LOAD_DIS, SEQ_OTP_LOAD_DIS);
 	if (ret)
 		goto err;
-	ret = _do_power_up(priv);
+	ret = _do_power_down(priv);
 	if (ret)
-		goto err;
+		dev_err(component->dev, "error powering down\n");
 	mutex_unlock(&priv->regmap_mutex);
 	return ret;
 err:
+	/* We can ignore further errors here */
+	_do_power_down(priv);
 	mutex_unlock(&priv->regmap_mutex);
 	dev_err(component->dev, "cope_with_untrimmed() error\n");
 	return ret;
