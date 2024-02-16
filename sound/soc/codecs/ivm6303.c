@@ -1910,7 +1910,6 @@ static const struct regmap_config regmap_config = {
 	.volatile_reg = ivm6303_volatile_register,
 
 	.cache_type = REGCACHE_RBTREE,
-	.disable_locking = 1,
 };
 
 /* Assumes regmap mutex taken */
