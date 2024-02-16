@@ -423,6 +423,30 @@ static void _restore_enables_status(struct snd_soc_component *component,
 		dev_err(component->dev, "error restoring enables status");
 }
 
+static int _get_vsis_en(struct ivm6303_priv *priv, unsigned int *v)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	int ret = regmap_read(priv->regmap, IVM6303_VISENSE_SETTINGS(1), v);
+
+	if (ret < 0) {
+		dev_err(dev, "error saving Vs/Is enable state\n");
+		return ret;
+	}
+	*v &= VIS_DIG_EN_MASK;
+	return ret;
+}
+
+static int _set_vsis_en(struct ivm6303_priv *priv, int mask, int on)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	int ret = regmap_update_bits(priv->regmap,
+				     IVM6303_VISENSE_SETTINGS(1),
+				     mask, on ? mask : 0);
+	if (ret < 0)
+		dev_err(dev, "error turning Vs/Is %s\n", on ? "On" : "Off");
+	return ret;
+}
+
 static int playback_mode_control_get(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
@@ -535,30 +559,6 @@ static int playback_mode_event(struct snd_soc_dapm_widget *w,
 		dev_err(component->dev, "%s: error in event handling",
 			__func__);
 	return 0;
-}
-
-static int _get_vsis_en(struct ivm6303_priv *priv, unsigned int *v)
-{
-	struct device *dev = &priv->i2c_client->dev;
-	int ret = regmap_read(priv->regmap, IVM6303_VISENSE_SETTINGS(1), v);
-
-	if (ret < 0) {
-		dev_err(dev, "error saving Vs/Is enable state\n");
-		return ret;
-	}
-	*v &= VIS_DIG_EN_MASK;
-	return ret;
-}
-
-static int _set_vsis_en(struct ivm6303_priv *priv, int mask, int on)
-{
-	struct device *dev = &priv->i2c_client->dev;
-	int ret = regmap_update_bits(priv->regmap,
-				     IVM6303_VISENSE_SETTINGS(1),
-				     mask, on ? mask : 0);
-	if (ret < 0)
-		dev_err(dev, "error turning Vs/Is %s\n", on ? "On" : "Off");
-	return ret;
 }
 
 static void vsis_enable_handler(struct work_struct * work)
