@@ -369,6 +369,7 @@ static void fw_exec_handler(struct work_struct *work)
 		dev_err(dev, "%s: section index is invalid\n", __func__);
 		goto end;
 	}
+	dev_dbg(dev, "%s: running fw section %d", __func__, s);
 	section = &priv->fw_sections[s];
 	if (!section->nsteps) {
 		dev_dbg(dev, "trying to run empty section %d", s);
@@ -407,6 +408,7 @@ static int _run_fw_section_sync(struct snd_soc_component *component, int s)
 
 	if (s < 0 || s >= IVM6303_N_SECTIONS)
 		return -EINVAL;
+	dev_dbg(component->dev, "%s: running seq %d\n", __func__, s);
 	section = &priv->fw_sections[s];
 	return _run_fw_section(priv, section);
 }
@@ -484,6 +486,7 @@ static int _do_hw_autocal(struct ivm6303_priv *priv)
 		&priv->fw_sections[IVM6303_HW_AUTOCAL];
 	int ret;
 
+	dev_dbg(dev, "running autocal section\n");
 	ret = _run_fw_section(priv, section);
 	if (ret)
 		dev_err(dev, "error running hw autocal fw section\n");
@@ -516,6 +519,8 @@ static void _set_speaker_enable(struct ivm6303_priv *priv, int en)
 		}
 	}
 
+	dev_dbg(dev, "running section %s\n",
+		en ? "stream_start" : "stream_stop");
 	_run_fw_section(priv, section);
 
 	if (en)
@@ -570,6 +575,8 @@ static int playback_mode_control_put(struct snd_kcontrol *kcontrol,
 			dev_err(c->dev, "error saving vs/is enable state\n");
 		_set_speaker_enable(priv, 0);
 	}
+	dev_dbg(c->dev, "%s: running section %d\n", __func__,
+		priv->playback_mode_fw_section);
 	ret = _run_fw_section_sync(c, priv->playback_mode_fw_section);
 	if (test_bit(SPEAKER_ENABLED, &priv->flags)) {
 		_set_speaker_enable(priv, 1);
@@ -871,6 +878,7 @@ static inline int _do_reset(struct ivm6303_priv *priv)
 /* Assumes regmap lock taken */
 static inline int _do_power(struct ivm6303_priv *priv, int up)
 {
+	dev_dbg(&priv->i2c_client->dev, "POWER -> %d\n", up);
 	return regmap_update_bits(priv->regmap, IVM6303_SYSTEM_CTRL, POWER,
 				  up ? POWER : 0);
 }
@@ -1646,6 +1654,7 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 	INIT_WORK(&priv->fw_exec_work, fw_exec_handler);
 	INIT_WORK(&priv->speaker_deferred_work, speaker_deferred_handler);
 	INIT_DELAYED_WORK(&priv->vsis_enable_work, vsis_enable_handler);
+	dev_dbg(component->dev, "%s: running probe section\n", __func__);
 	ret = run_fw_section_sync(component, IVM6303_PROBE_WRITES);
 	if (ret < 0)
 		goto err;
