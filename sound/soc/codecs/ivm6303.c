@@ -993,6 +993,10 @@ static int cope_with_untrimmed(struct snd_soc_component *component)
 				 SEQ_OTP_LOAD_DIS, SEQ_OTP_LOAD_DIS);
 	if (ret)
 		goto err;
+	ret = _run_fw_section(priv,
+			      &priv->fw_sections[IVM6303_TRIMMING_DEFAULTS]);
+	if (ret < 0)
+		goto err;
 	ret = _do_power_down(priv);
 	if (ret)
 		dev_err(component->dev, "error powering down\n");
