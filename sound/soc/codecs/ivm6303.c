@@ -775,6 +775,24 @@ static int _resync_power_state(struct snd_soc_component *component)
 	return _do_power(priv, on);
 }
 
+/* Assumes regmap mutex taken */
+static int _set_pll_enable_check(struct ivm6303_priv *priv, int en,
+				 bool *changed)
+{
+	return regmap_update_bits_check(priv->regmap,
+					IVM6303_ENABLES_SETTINGS(1),
+					PLL_EN|PLL_CLKMUX_EN,
+					en ? PLL_EN|PLL_CLKMUX_EN : 0,
+					changed);
+}
+
+static int _set_pll_enable(struct ivm6303_priv *priv, int en)
+{
+	return regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(1),
+				  PLL_EN|PLL_CLKMUX_EN,
+				  en ? PLL_EN|PLL_CLKMUX_EN : 0);
+}
+
 static int check_hw_rev(struct snd_soc_component *component)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
@@ -1444,6 +1462,10 @@ static int ivm6303_set_bias_level(struct snd_soc_component *component,
 				dev_err(dev,
 					"%s: error powering up\n", __func__);
 			run_fw_section(component, IVM6303_BIAS_OFF_TO_STANDBY);
+			/* Enable pll */
+			ret = _set_pll_enable(priv, 1);
+			if (ret  < 0)
+				dev_err(component->dev, "Error enabling pll\n");
 		}
 		if (prev_level == SND_SOC_BIAS_PREPARE) {
 			/* Disable TDM */
@@ -1468,10 +1490,19 @@ static int ivm6303_set_bias_level(struct snd_soc_component *component,
 		}
 		break;
 	case SND_SOC_BIAS_OFF:
-		if (prev_level == SND_SOC_BIAS_STANDBY)
+		if (prev_level == SND_SOC_BIAS_STANDBY) {
 			run_fw_section(component, IVM6303_BIAS_STANDBY_TO_OFF);
-		/* Turn off power on BIAS OFF */
-		ret = _do_power(priv, 0);
+			/* Disable pll when going to SND_SOC_BIAS_OFF */
+			ret = _set_pll_enable(priv, 0);
+			if (ret  < 0)
+				dev_err(component->dev,
+					"Error disabling pll\n");
+			/* And turn power off power off */
+			ret = _do_power(priv, 0);
+			if (ret)
+				dev_err(component->dev,
+					"Error powering down\n");
+		}
 		break;
 	}
 	return ret;
@@ -1905,14 +1936,6 @@ ivm6303_pll_input_div[MAX_FSYN_RATES][MAX_CHANNELS] = {
 #define PLL_POST_DIVIDER 2
 
 /* Assumes regmap mutex taken */
-static int _set_pll_enable(struct ivm6303_priv *priv, int en)
-{
-	return regmap_update_bits(priv->regmap, IVM6303_ENABLES_SETTINGS(1),
-				  PLL_EN|PLL_CLKMUX_EN,
-				  en ? PLL_EN|PLL_CLKMUX_EN : 0);
-}
-
-/* Assumes regmap mutex taken */
 static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 {
 	int ret, ch_index;
@@ -1920,6 +1943,7 @@ static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 	unsigned long osr, rate, ratek, refclk, pll_input_divider,
 		pll_feedback_divider;
 	u8 tdm_fsyn_sr, tdm_bclk_osr, shift, mask, v;
+	bool pll_was_enabled;
 
 	osr = priv->slots * priv->slot_width;
 	rate = bclk / osr;
@@ -1947,8 +1971,8 @@ static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 	if ((pll_feedback_divider == priv->pll_feedback_divider) &&
 	    (pll_input_divider == priv->pll_input_divider))
 		goto pll_done;
-	/* Start updating PLL settings by disabling PLL */
-	ret = _set_pll_enable(priv, 0);
+	/* Start updating PLL settings by disabling PLL, if it was enabled */
+	ret = _set_pll_enable_check(priv, 0, &pll_was_enabled);
 	if (ret < 0) {
 		dev_err(component->dev, "error disabling pll");
 		goto err;
@@ -1996,11 +2020,13 @@ static int _setup_pll(struct snd_soc_component *component, unsigned int bclk)
 	priv->pll_input_divider = pll_input_divider;
 	priv->pll_feedback_divider = pll_feedback_divider;
 
-	/* Finally enable PLL */
-	ret = _set_pll_enable(priv, 1);
-	if (ret < 0) {
-		dev_err(component->dev, "error restoring pll status");
-		goto err;
+	/* Finally restore PLL state depending on current bias level */
+	if (pll_was_enabled) {
+		ret = _set_pll_enable(priv, 1);
+		if (ret < 0) {
+			dev_err(component->dev, "error restoring pll status");
+			goto err2;
+		}
 	}
 
 pll_done:
@@ -2025,6 +2051,9 @@ pll_done:
 	ret = regmap_update_bits(priv->regmap, IVM6303_TDM_SETTINGS(2), 0x7f,
 				 tdm_fsyn_sr | tdm_bclk_osr);
 err:
+	if (pll_was_enabled)
+		_set_pll_enable(priv, 1);
+err2:
 	return ret;
 }
 
