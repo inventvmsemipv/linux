@@ -1292,12 +1292,19 @@ static void _turn_speaker_on(struct ivm6303_priv *priv)
 {
 	int stat;
 	struct device *dev = &priv->i2c_client->dev;
+	unsigned int vsis_enabled;
+
+	stat = _get_vsis_en(priv, &vsis_enabled);
+
+	if (stat)
+		dev_err(dev, "Error reading VsIs enable bits\n");
 
 	_set_speaker_enable(priv, 1);
-	if (test_and_clear_bit(WAITING_FOR_VSIS_ON, &priv->flags)) {
+	if ((!stat && vsis_enabled) ||
+	    test_and_clear_bit(WAITING_FOR_VSIS_ON, &priv->flags)) {
 		stat = _set_vsis_en(priv, VIS_DIG_EN_MASK, 1);
 		if (stat < 0)
-			dev_err(dev, "Error reading VsIs enable bits\n");
+			dev_err(dev, "Error writing VsIs enable bits\n");
 	}
 	set_bit(SPEAKER_ENABLED, &priv->flags);
 }
