@@ -1643,9 +1643,6 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 	ret = check_hw_rev(component);
 	if (ret < 0)
 		return ret;
-	ret = cope_with_untrimmed(component);
-	if (ret < 0)
-		return ret;
 	ret = load_fw(component);
 	if (ret < 0)
 		return ret;
@@ -1658,6 +1655,9 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 	INIT_WORK(&priv->fw_exec_work, fw_exec_handler);
 	INIT_WORK(&priv->speaker_deferred_work, speaker_deferred_handler);
 	INIT_DELAYED_WORK(&priv->vsis_enable_work, vsis_enable_handler);
+	ret = cope_with_untrimmed(component);
+	if (ret < 0)
+		return ret;
 	dev_dbg(component->dev, "%s: running probe section\n", __func__);
 	ret = run_fw_section_sync(component, IVM6303_PROBE_WRITES);
 	if (ret < 0)
