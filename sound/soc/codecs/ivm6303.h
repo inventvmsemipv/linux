@@ -107,7 +107,9 @@ struct ivm6303_priv {
 #define SPEAKER_ENABLED 3
 #define WAITING_FOR_VSIS_ON 5
 	unsigned long		flags;
+	/* When zero, device is physically muted */
 	unsigned int		saved_volume;
+	/* Desired mute status */
 	int			muted;
 	struct dentry		*debugfs_root;
 };

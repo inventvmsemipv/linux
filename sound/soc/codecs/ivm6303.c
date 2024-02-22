@@ -453,18 +453,34 @@ static int _set_vsis_en(struct ivm6303_priv *priv, int mask, int v)
 static int _do_mute(struct ivm6303_priv *priv, int mute)
 {
 	int ret;
+	struct device *dev = &priv->i2c_client->dev;
 
 	if (mute) {
 		if (test_bit(SPEAKER_ENABLED, &priv->flags)) {
+			unsigned int curr_volume;
+
 			ret = regmap_read(priv->regmap, IVM6303_VOLUME,
-					  &priv->saved_volume);
-			if (ret < 0)
+					  &curr_volume);
+			if (ret < 0) {
+				dev_err(dev, "Error reading current volume\n");
 				goto err;
+			}
+			if (curr_volume) {
+				priv->saved_volume = curr_volume;
+				dev_dbg(dev, "Saved volume = %2x\n",
+					priv->saved_volume);
+			} else
+				dev_dbg(dev, "Not saving 0 volume\n");
 		}
 		ret = regmap_write(priv->regmap, IVM6303_VOLUME, 0);
-	} else
+		dev_dbg(dev, "Set volume to 0\n");
+	} else {
+		dev_dbg(dev, "Setting volume to %2x\n", priv->saved_volume);
 		ret = regmap_write(priv->regmap, IVM6303_VOLUME,
 				   priv->saved_volume);
+		if (ret)
+			dev_err(dev, "Error restoring saved volume\n");
+	}
 err:
 	return ret;
 }
@@ -2660,6 +2676,7 @@ static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 		return 0;
 
 	mutex_lock(&priv->regmap_mutex);
+	dev_dbg(component->dev, "%s, mute = %d\n", __func__, mute);
 	ret = _do_power_up(priv);
 	if (test_bit(SPEAKER_ENABLED, &priv->flags))
 		ret = _do_mute(priv, mute);
@@ -2668,6 +2685,7 @@ static int ivm6303_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 	ret = _resync_power_state(component);
 	if (ret)
 		dev_err(component->dev, "error resyncing power state\n");
+	dev_dbg(component->dev, "%s returns\n", __func__);
 	mutex_unlock(&priv->regmap_mutex);
 	return ret;
 }
