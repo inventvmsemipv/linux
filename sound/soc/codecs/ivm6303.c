@@ -1609,6 +1609,10 @@ static int ivm6303_set_bias_level(struct snd_soc_component *component,
 				dev_err(dev,
 					"%s: error powering up\n", __func__);
 			run_fw_section(component, IVM6303_BIAS_OFF_TO_STANDBY);
+			/* Enable tdm */
+			ret = set_tdm_enable(priv, 1);
+			if (ret < 0)
+				dev_err(component->dev, "Error enabling tdm\n");
 			/* Enable pll */
 			ret = _set_pll_enable(priv, 1);
 			if (ret  < 0)
@@ -2356,8 +2360,7 @@ static int _set_protocol(struct snd_soc_dai *dai, unsigned int fmt)
 		return ret;
 	}
 	priv->tdm_settings_1 = v;
-	/* Finally enable TDM */
-	return _set_tdm_enable(priv, 1);
+	return 0;
 }
 
 static int ivm6303_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
