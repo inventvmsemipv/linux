@@ -133,6 +133,24 @@
 #define IVM6303_VOLUME(n)		(0x61 + (n))
 #define VOLUME_LSBS_MASK		0x3U
 
+/* 0.125dB * 1000 */
+#define IVM6303_VOLUME_HW_STEP		125
+/* 0.25dB * 1000 */
+#define IVM6303_VOLUME_CTRL_STEP	250
+
+#define IVM6303_DEFAULT_MAX_VOLUME	752
+
+/* ((752 (0xbc0) - 1) * 125) / 10 => 9387 */
+#define IVM6303_DEFAULT_MIN_VOLUME				\
+	(-(((IVM6303_DEFAULT_MAX_VOLUME - 1) * 125)/10))
+
+/*
+ * Control step is 0.25dB, which is double the actual step, so we have to
+ * divide max by 2
+ */
+#define IVM6303_DEFAULT_MAX_CTRL_VOLUME \
+	DIV_ROUND_UP(IVM6303_DEFAULT_MAX_VOLUME,2)
+
 #define IVM6303_VOLUME_STATUS(x)	((x) + 0x6c)
 
 #define IVM6303_PLL_SETTINGS(x)		((x) + 0x80)
@@ -1811,7 +1829,90 @@ static SOC_VALUE_ENUM_SINGLE_DECL(ch4_output_mux_enum,
 				  ch4_output_mux_texts,
 				  ch4_output_mux_values);
 
+/*
+ * Max/min volume depend on values set by firmware, so this has to be
+ * reinitialized on probe
+ */
+static DECLARE_TLV_DB_SCALE(vol_scale, IVM6303_DEFAULT_MIN_VOLUME,
+			    IVM6303_VOLUME_CTRL_STEP/10, 0);
+
+static int ivm6303_info_volsw(struct snd_kcontrol *kcontrol,
+			      struct snd_ctl_elem_info *uinfo)
+{
+	struct snd_soc_component *component =
+		snd_soc_kcontrol_component(kcontrol);
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	struct device *dev = &priv->i2c_client->dev;
+
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = 1;
+	/* 0 is mute */
+	uinfo->value.integer.min = 1;
+	/* Max value has to be divided by 2 because control step is 0.25 */
+	uinfo->value.integer.max = DIV_ROUND_UP(priv->max_volume, 2);
+	dev_dbg(dev, "%s, min = %ld, max = %ld\n", __func__,
+		uinfo->value.integer.min, uinfo->value.integer.max);
+	return 0;
+}
+
+static int ivm6303_get_volsw(struct snd_kcontrol *kcontrol,
+			     struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component =
+		snd_soc_kcontrol_component(kcontrol);
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	struct device *dev = &priv->i2c_client->dev;
+	int v = DIV_ROUND_UP(priv->saved_volume, 2);
+
+	mutex_lock(&priv->regmap_mutex);
+	v = (v >= 1) ? v : 1;
+	dev_dbg(dev, "%s, vol = %d\n", __func__, v);
+	ucontrol->value.integer.value[0] = v;
+	mutex_unlock(&priv->regmap_mutex);
+	return 0;
+}
+
+static int ivm6303_put_volsw(struct snd_kcontrol *kcontrol,
+			     struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component =
+		snd_soc_kcontrol_component(kcontrol);
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+	struct device *dev = &priv->i2c_client->dev;
+	int ret, v = ucontrol->value.integer.value[0];
+
+	mutex_lock(&priv->regmap_mutex);
+
+	/* Convert to actual device value (step 0.125dB) */
+	v *= 2;
+	dev_dbg(dev, "%s, setting vol = %d\n", __func__, v);
+	if (v < 1 || v > priv->max_volume) {
+		dev_err(dev, "invalid volume\n");
+		return -EINVAL;
+	}
+	priv->saved_volume = v;
+	if (test_bit(SPEAKER_ENABLED, &priv->flags)) {
+		ret = _set_volume(priv, priv->saved_volume);
+		if (ret)
+			dev_err(dev, "error writing volume\n");
+	}
+	mutex_unlock(&priv->regmap_mutex);
+	return ret;
+}
+
+#define VOL_ACCESS \
+	SNDRV_CTL_ELEM_ACCESS_TLV_READ | SNDRV_CTL_ELEM_ACCESS_READWRITE
+
 static struct snd_kcontrol_new ivm6303_ctrls[] = {
+	{
+		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+		.name = "Playback Volume Volume",
+		.info = ivm6303_info_volsw,
+		.access = VOL_ACCESS,
+		.tlv.p = vol_scale,
+		.get = ivm6303_get_volsw,
+		.put = ivm6303_put_volsw,
+	},
 	SOC_SINGLE("Data1: enable T", IVM6303_TDM_SETTINGS(0x15), 0, 1, 0),
 	SOC_SINGLE("Data1: enable Vbat", IVM6303_TDM_SETTINGS(0x15), 1, 1, 0),
 	SOC_SINGLE("Data1: enable Vbatout",
@@ -2773,6 +2874,27 @@ const struct snd_soc_dai_ops ivm6303_tdm_dai_ops = {
 
 static int ivm6303_tdm_dai_probe(struct snd_soc_dai *dai)
 {
+	struct snd_soc_component *component = dai->component;
+	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
+
+	/* Initialize volume scale before adding control */
+	/*
+	 * Max volume set by firmware maps as 0dB, min volume corresponds to 1.
+	 * Device volume step is 0.125dB, but control step is 0.25dB
+	 * So: ((firmware_max_volume - 2)/2) * 0.25dB + min_volume_db = 0dB
+	 * min_volume_db = -(1000 * ((firmware_max_volume - 2)/2) * 0.25dB)
+	 * For instance: firmware_max_volume = 755 -> min_volume_db = -94375
+	 * Units are 0.001dB here, while the kernel uses 0.01db. So we take
+	 * a step of 0.25 dB and min_vol shall be an even multiple of the step
+	 */
+	int min_vol =((priv->max_volume - 1) * IVM6303_VOLUME_HW_STEP);
+
+	rounddown(min_vol, IVM6303_VOLUME_CTRL_STEP);
+
+	min_vol /= 10;
+
+	vol_scale[SNDRV_CTL_TLVO_DB_SCALE_MIN] = -min_vol;
+
 	return snd_soc_add_component_controls(dai->component, ivm6303_ctrls,
 					      ARRAY_SIZE(ivm6303_ctrls));
 }
