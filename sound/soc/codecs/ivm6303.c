@@ -130,7 +130,8 @@
 /* TDM_SETTINGS(27) */
 # define TDM_MONO_MIX_SHIFT		4
 
-#define IVM6303_VOLUME			0x61
+#define IVM6303_VOLUME(n)		(0x61 + (n))
+#define VOLUME_LSBS_MASK		0x3U
 
 #define IVM6303_VOLUME_STATUS(x)	((x) + 0x6c)
 
@@ -450,6 +451,51 @@ static int _set_vsis_en(struct ivm6303_priv *priv, int mask, int v)
 	return ret;
 }
 
+static int _get_volume(struct ivm6303_priv *priv, unsigned int *out)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	unsigned int tmp;
+	int ret = regmap_read(priv->regmap, IVM6303_VOLUME(0), out);
+
+	if (ret)
+		goto err;
+	/* 8 MSBs */
+	*out <<= 2U;
+	ret = regmap_read(priv->regmap, IVM6303_VOLUME(1), &tmp);
+	if (ret)
+		goto err;
+	/* 2 MSBs */
+	*out |= (tmp & VOLUME_LSBS_MASK);
+	return ret;
+
+err:
+	dev_err(dev, "error reading volume\n");
+	return ret;
+}
+
+static int _set_volume(struct ivm6303_priv *priv, unsigned int v)
+{
+	struct device *dev = &priv->i2c_client->dev;
+	int ret;
+
+	if (v > priv->saved_volume) {
+		dev_dbg(dev, "attempt to set too high volume, saturating\n");
+		v = priv->saved_volume;
+	}
+
+	ret = regmap_update_bits(priv->regmap, IVM6303_VOLUME(1),
+				 VOLUME_LSBS_MASK, v & VOLUME_LSBS_MASK);
+	if (ret)
+		goto err;
+	ret = regmap_write(priv->regmap, IVM6303_VOLUME(0), v >> 2);
+	if (ret)
+		goto err;
+	return ret;
+err:
+	dev_err(dev, "error setting volume\n");
+	return ret;
+}
+
 static int _do_mute(struct ivm6303_priv *priv, int mute)
 {
 	int ret;
@@ -459,12 +505,9 @@ static int _do_mute(struct ivm6303_priv *priv, int mute)
 		if (test_bit(SPEAKER_ENABLED, &priv->flags)) {
 			unsigned int curr_volume;
 
-			ret = regmap_read(priv->regmap, IVM6303_VOLUME,
-					  &curr_volume);
-			if (ret < 0) {
-				dev_err(dev, "Error reading current volume\n");
+			ret = _get_volume(priv, &curr_volume);
+			if (ret < 0)
 				goto err;
-			}
 			if (curr_volume) {
 				priv->saved_volume = curr_volume;
 				dev_dbg(dev, "Saved volume = %2x\n",
@@ -472,12 +515,11 @@ static int _do_mute(struct ivm6303_priv *priv, int mute)
 			} else
 				dev_dbg(dev, "Not saving 0 volume\n");
 		}
-		ret = regmap_write(priv->regmap, IVM6303_VOLUME, 0);
+		ret = _set_volume(priv, 0);
 		dev_dbg(dev, "Set volume to 0\n");
 	} else {
-		dev_dbg(dev, "Setting volume to %2x\n", priv->saved_volume);
-		ret = regmap_write(priv->regmap, IVM6303_VOLUME,
-				   priv->saved_volume);
+		dev_dbg(dev, "Setting volume to %3x\n", priv->saved_volume);
+		ret = _set_volume(priv, priv->saved_volume);
 		if (ret)
 			dev_err(dev, "Error restoring saved volume\n");
 	}
@@ -1690,7 +1732,7 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 	/* Power up */
 	ret = _do_power_up(priv);
 	/* Initialize volume */
-	ret = regmap_read(priv->regmap, IVM6303_VOLUME, &priv->saved_volume);
+	ret = _get_volume(priv, &priv->saved_volume);
 	if (ret) {
 		dev_err(component->dev, "error reading initial volume\n");
 		mutex_unlock(&priv->regmap_mutex);
