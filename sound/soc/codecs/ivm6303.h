@@ -109,6 +109,8 @@ struct ivm6303_priv {
 	unsigned long		flags;
 	/* When zero, device is physically muted */
 	unsigned int		saved_volume;
+	/* Max volume set by firmware on probe */
+	unsigned int		max_volume;
 	/* Desired mute status */
 	int			muted;
 	struct dentry		*debugfs_root;

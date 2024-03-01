@@ -478,9 +478,9 @@ static int _set_volume(struct ivm6303_priv *priv, unsigned int v)
 	struct device *dev = &priv->i2c_client->dev;
 	int ret;
 
-	if (v > priv->saved_volume) {
+	if (v > priv->max_volume) {
 		dev_dbg(dev, "attempt to set too high volume, saturating\n");
-		v = priv->saved_volume;
+		v = priv->max_volume;
 	}
 
 	ret = regmap_update_bits(priv->regmap, IVM6303_VOLUME(1),
@@ -1738,6 +1738,8 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 		mutex_unlock(&priv->regmap_mutex);
 		goto err;
 	}
+	/* Volume initially set by firmware is the max allowed */
+	priv->max_volume = priv->saved_volume;
 	/* Switch off power */
 	ret = _resync_power_state(component);
 	if (ret)
