@@ -1886,10 +1886,10 @@ static int ivm6303_put_volsw(struct snd_kcontrol *kcontrol,
 	/* Convert to actual device value (step 0.125dB) */
 	v *= 2;
 	dev_dbg(dev, "%s, setting vol = %d\n", __func__, v);
-	if (v < 1 || v > priv->max_volume) {
-		dev_err(dev, "invalid volume\n");
-		return -EINVAL;
-	}
+	if (v < 1)
+		v = 1;
+	if (v > priv->max_volume)
+		v = priv->max_volume;
 	priv->saved_volume = v;
 	if (test_bit(SPEAKER_ENABLED, &priv->flags)) {
 		ret = _set_volume(priv, priv->saved_volume);
