@@ -91,6 +91,7 @@ struct ivm6303_priv {
 	int			pll_locked_poll_attempts;
 	int			clkmon_ok_attempts;
 	int			autocal_done;
+	int			untrimmed;
 	/* tdm_settings_1 register */
 	int			tdm_settings_1;
 	/* PLL settings */

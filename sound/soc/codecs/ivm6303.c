@@ -1056,6 +1056,7 @@ static int cope_with_untrimmed(struct snd_soc_component *component)
 		if (ret)
 			dev_err(component->dev, "error powering down\n");
 		mutex_unlock(&priv->regmap_mutex);
+		priv->untrimmed = 0;
 		return ret;
 	}
 
@@ -1076,6 +1077,7 @@ static int cope_with_untrimmed(struct snd_soc_component *component)
 			      &priv->fw_sections[IVM6303_TRIMMING_DEFAULTS]);
 	if (ret < 0)
 		goto err;
+	priv->untrimmed = 1;
 	ret = _do_power_down(priv);
 	if (ret)
 		dev_err(component->dev, "error powering down\n");
@@ -1715,6 +1717,67 @@ static int ivm6303_set_bias_level(struct snd_soc_component *component,
 	return ret;
 }
 
+
+/* Read only calibration values, format is fixed point 28 fractional bits */
+
+static ssize_t _cal_show(struct device *dev,
+			 unsigned int r,
+			 char *buf,
+			 unsigned int untrimmed_value)
+{
+	struct ivm6303_priv *priv = dev_get_drvdata(dev);
+	int stat;
+	unsigned int v;
+
+	if (priv->untrimmed) {
+		v = untrimmed_value;
+		goto end;
+	}
+	stat = regmap_read(priv->regmap, r, &v);
+	if (stat) {
+		dev_err(dev, "Error reading register 0x%02x\n", r);
+		return stat;
+	}
+end:
+	return snprintf(buf, PAGE_SIZE, "0x%02x", v);
+}
+
+static ssize_t is_g1_show(struct device *dev,
+			  struct device_attribute *attr, char *buf)
+{
+	return _cal_show(dev, IVM6303_CAL_SETTINGS(9), buf, 0);
+}
+
+static ssize_t is_g2_show(struct device *dev,
+			  struct device_attribute *attr, char *buf)
+{
+	return _cal_show(dev, IVM6303_CAL_SETTINGS(10), buf, 128);
+}
+
+static ssize_t vs_g_show(struct device *dev,
+			 struct device_attribute *attr, char *buf)
+{
+	return _cal_show(dev, IVM6303_CAL_SETTINGS(11), buf, 128);
+}
+
+static DEVICE_ATTR_RO(is_g1);
+static DEVICE_ATTR_RO(is_g2);
+static DEVICE_ATTR_RO(vs_g);
+
+static void _add_calibration_attrs(struct snd_soc_component *component)
+{
+	device_create_file(component->dev, &dev_attr_is_g1);
+	device_create_file(component->dev, &dev_attr_is_g2);
+	device_create_file(component->dev, &dev_attr_vs_g);
+}
+
+static void _remove_calibration_attrs(struct snd_soc_component *component)
+{
+	device_remove_file(component->dev, &dev_attr_vs_g);
+	device_remove_file(component->dev, &dev_attr_is_g2);
+	device_remove_file(component->dev, &dev_attr_is_g1);
+}
+
 static int ivm6303_component_probe(struct snd_soc_component *component)
 {
 	struct ivm6303_priv *priv = snd_soc_component_get_drvdata(component);
@@ -1758,6 +1821,7 @@ static int ivm6303_component_probe(struct snd_soc_component *component)
 	}
 	/* Volume initially set by firmware is the max allowed */
 	priv->max_volume = priv->saved_volume;
+	_add_calibration_attrs(component);
 	/* Switch off power */
 	ret = _resync_power_state(component);
 	if (ret)
@@ -1779,6 +1843,7 @@ static void ivm6303_component_remove(struct snd_soc_component *component)
 	cancel_delayed_work_sync(&priv->vsis_enable_work);
 	flush_workqueue(priv->wq);
 	destroy_workqueue(priv->wq);
+	_remove_calibration_attrs(component);
 	priv->wq = NULL;
 	priv->flags = priv->muted = priv->capture_only = priv->autocal_done = 0;
 	priv->tdm_settings_1 = -1;
