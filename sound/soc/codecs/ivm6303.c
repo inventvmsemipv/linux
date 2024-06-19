@@ -1745,19 +1745,19 @@ end:
 static ssize_t is_g1_show(struct device *dev,
 			  struct device_attribute *attr, char *buf)
 {
-	return _cal_show(dev, IVM6303_CAL_SETTINGS(9), buf, 0);
+	return _cal_show(dev, IVM6303_OTP(22), buf, 0);
 }
 
 static ssize_t is_g2_show(struct device *dev,
 			  struct device_attribute *attr, char *buf)
 {
-	return _cal_show(dev, IVM6303_CAL_SETTINGS(10), buf, 128);
+	return _cal_show(dev, IVM6303_OTP(23), buf, 128);
 }
 
 static ssize_t vs_g_show(struct device *dev,
 			 struct device_attribute *attr, char *buf)
 {
-	return _cal_show(dev, IVM6303_CAL_SETTINGS(11), buf, 128);
+	return _cal_show(dev, IVM6303_OTP(24), buf, 128);
 }
 
 static DEVICE_ATTR_RO(is_g1);
