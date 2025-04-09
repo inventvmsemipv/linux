@@ -324,19 +324,19 @@ static ssize_t asoc_card_dai_link_format_store(struct config_item *item,
 
 static void fixup_total_slots(struct asoc_configfs_dai_link_data *dld)
 {
-	int i;
+	int i, rxs, txs, rxns, txns;
 
 	if (dld->total_slots)
 		/* Already assigned (I2S) */
 		return;
 
-	for (i = 0; i < dld->ncodecs; i++) {
-		int rxns, txns;
-
-		rxns = hweight_long(dld->codecs[i].rx_mask);
-		txns = hweight_long(dld->codecs[i].tx_mask);
-		dld->total_slots += max(rxns, txns);
+	for (i = 0, rxs = 0, txs = 0; i < dld->ncodecs; i++) {
+		rxs |= dld->codecs[i].rx_mask;
+		txs |= dld->codecs[i].tx_mask;
 	}
+	rxns = hweight_long(rxs);
+	txns = hweight_long(txs);
+	dld->total_slots += max(rxns, txns);
 	pr_debug("%s calculated %lu slots\n", __func__, dld->total_slots);
 }
 
